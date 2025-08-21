@@ -3,5 +3,6 @@ const nextConfig = {
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
 };
-console.log('>> next.config.cjs loaded'); // verify in Vercel logs
+
+console.log('>> next.config.js loaded'); // sanity log
 module.exports = nextConfig;
