@@ -5,6 +5,9 @@
   "main": "index.js",
   "scripts": {
     "postinstall": "node scripts/patch-ox.js",
+    "prebuild": "node -e \"const fs=require('fs');console.log('PWD:',process.cwd());console.log('CONFIGS:',fs.readdirSync('.').filter(n=>n.startsWith('next.config')));\"",
+    "build": "next build",
+    "vercel-build": "npm run prebuild && node scripts/patch-ox.js && next build",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
