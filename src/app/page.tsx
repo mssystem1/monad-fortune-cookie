@@ -1,11 +1,27 @@
 'use client';
 
 import * as React from 'react';
-import { useAccount, useAccountEffect } from 'wagmi';
+import type { Abi } from 'viem';
+import {
+  isAddressEqual,
+  parseEventLogs,
+  zeroAddress,
+} from 'viem';
+import {
+  useAccount,
+  useAccountEffect,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+  useBalance,
+} from 'wagmi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 
-const COOKIE_ADDRESS = process.env.NEXT_PUBLIC_COOKIE_ADDRESS as string;
+// ⬇️ RELATIVE imports (adjust paths if yours differ)
+import FortuneABI from '../abi/FortuneCookiesAI.json';
+import { monadTestnet } from '../lib/chain';
+
+const COOKIE_ADDRESS = process.env.NEXT_PUBLIC_COOKIE_ADDRESS as `0x${string}`;
 
 const explorerNftUrl = (tokenId: number) =>
   `https://testnet.monadexplorer.com/nft/${COOKIE_ADDRESS}/${tokenId}`;
@@ -22,6 +38,23 @@ export default function Page() {
   const { address, chain, isConnected } = useAccount();
   const connected = isConnected && !!address;
 
+  // Wallet balance (shown in top bar)
+  const { data: balance } = useBalance({
+    address,
+    chainId: monadTestnet.id,
+    query: { enabled: !!address },
+  });
+
+  // ---------- UI state ----------
+  const [topic, setTopic] = React.useState('');
+  const [vibe, setVibe] = React.useState('optimistic');
+  const [nameOpt, setNameOpt] = React.useState('');
+  const [fortune, setFortune] = React.useState('');
+
+  const [genBusy, setGenBusy] = React.useState(false);
+  const [mintBusy, setMintBusy] = React.useState(false);
+  const [uiError, setUiError] = React.useState<string | null>(null);
+
   const [lastMinted, setLastMinted] = React.useState<number | null>(null);
   const [holdingIds, setHoldingIds] = React.useState<number[]>([]);
   const [scanNote, setScanNote] = React.useState<string | null>(null);
@@ -31,10 +64,12 @@ export default function Page() {
     if (address) prevAddrRef.current = address;
   }, [address]);
 
+  // ---------- Clear everything on disconnect ----------
   const clearWalletUI = React.useCallback(() => {
     setLastMinted(null);
     setHoldingIds([]);
     setScanNote(null);
+    setUiError(null);
     qc.removeQueries({ queryKey: ['lastMinted'] });
     qc.removeQueries({ queryKey: ['holdings'] });
     try {
@@ -53,19 +88,34 @@ export default function Page() {
     },
   });
 
+  // ---------- Queries ----------
   const lastMintQ = useQuery({
     queryKey: ['lastMinted', address],
     enabled: !!address,
     staleTime: 60_000,
     queryFn: async () => {
       const r = await fetch(`/api/last-minted?address=${address}`, { cache: 'no-store' });
+      if (!r.ok) return null;
       const j = await r.json();
       return (j?.tokenId ?? null) as number | null;
     },
   });
+
+  // Load localStorage fallback on connect (only if server returned null)
   React.useEffect(() => {
-    setLastMinted(lastMintQ.data ?? null);
-  }, [lastMintQ.data]);
+    if (!connected) return;
+    const serverVal = lastMintQ.data;
+    if (serverVal != null) {
+      setLastMinted(serverVal);
+      try { localStorage.setItem(`fc:lastMinted:${address}`, String(serverVal)); } catch {}
+      return;
+    }
+    // server null/404 → try localStorage
+    try {
+      const s = localStorage.getItem(`fc:lastMinted:${address}`);
+      if (s && !Number.isNaN(Number(s))) setLastMinted(Number(s));
+    } catch {}
+  }, [connected, address, lastMintQ.data]);
 
   const holdingsQ = useQuery({
     queryKey: ['holdings', address, COOKIE_ADDRESS],
@@ -76,16 +126,30 @@ export default function Page() {
         `/api/holdings?address=${address}&contract=${COOKIE_ADDRESS}`,
         { cache: 'no-store' },
       );
+      if (!r.ok) return [] as number[];
       const j = await r.json();
       if (j?.note) setScanNote(j.note as string);
       const ids = Array.isArray(j?.tokenIds) ? (j.tokenIds as number[]) : [];
       return Array.from(new Set(ids)).sort((a, b) => a - b);
     },
   });
+
+  // If lastMint still null but we have holdings, use max tokenId as fallback
+  React.useEffect(() => {
+    if (lastMintQ.isLoading) return;
+    if (!connected) return;
+    if ((lastMintQ.data == null) && holdingsQ.data && holdingsQ.data.length > 0) {
+      const mx = holdingsQ.data[holdingsQ.data.length - 1];
+      setLastMinted(mx);
+      try { localStorage.setItem(`fc:lastMinted:${address}`, String(mx)); } catch {}
+    }
+  }, [connected, address, lastMintQ.isLoading, lastMintQ.data, holdingsQ.data]);
+
   React.useEffect(() => {
     setHoldingIds(holdingsQ.data ?? []);
   }, [holdingsQ.data]);
 
+  // Gentle refresh every 60s while connected
   React.useEffect(() => {
     if (!connected) return;
     const t = window.setInterval(() => {
@@ -95,118 +159,252 @@ export default function Page() {
     return () => window.clearInterval(t);
   }, [connected, address, qc]);
 
+  // ---------- Generate with AI ----------
+  const onGenerate = async () => {
+    setUiError(null);
+    setGenBusy(true);
+    try {
+      const r = await fetch('/api/fortune', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: topic || undefined,
+          vibe: vibe || undefined,
+          name: nameOpt || undefined,
+        }),
+      });
+      const j = await r.json();
+      const f = j?.fortune ?? j?.text ?? j?.message ?? '';
+      if (!f) throw new Error('No fortune returned');
+      setFortune(f);
+    } catch (e: any) {
+      setUiError(e?.message || 'Failed to generate fortune');
+    } finally {
+      setGenBusy(false);
+    }
+  };
+
+  // ---------- Mint ----------
+  const { writeContractAsync } = useWriteContract();
+  const [txHash, setTxHash] = React.useState<`0x${string}` | undefined>(undefined);
+
+  const onMint = async () => {
+    setUiError(null);
+    if (!connected || !address) {
+      setUiError('Connect your wallet first.');
+      return;
+    }
+    if (!fortune?.trim()) {
+      setUiError('Enter or generate a fortune first.');
+      return;
+    }
+    setMintBusy(true);
+    try {
+      const hash = await writeContractAsync({
+        address: COOKIE_ADDRESS,
+        abi: FortuneABI as Abi,
+        functionName: 'mintWithFortune',
+        args: [fortune.trim()],
+        account: address as `0x${string}`,
+        chain: monadTestnet,
+      });
+      setTxHash(hash);
+    } catch (e: any) {
+      setUiError(e?.shortMessage || e?.message || 'Mint failed');
+    } finally {
+      setMintBusy(false);
+    }
+  };
+
+  const {
+    data: receipt,
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    error: confirmError,
+  } = useWaitForTransactionReceipt({ hash: txHash });
+
+  // Parse receipt logs safely with parseEventLogs (avoids topics tuple typing issues)
+  React.useEffect(() => {
+    if (!isConfirmed || !receipt || !address) return;
+
+    let foundTokenId: number | null = null;
+
+    try {
+      const decoded = parseEventLogs({
+        abi: FortuneABI as Abi,
+        logs: (receipt.logs ?? []) as any, // viem will decode those matching the ABI
+      });
+
+      for (const ev of decoded) {
+        if (!ev || (ev as any).eventName == null) continue;
+
+        // Restrict to our contract address (if present on the decoded log)
+        const evAddr = (ev as any).address as `0x${string}` | undefined;
+        if (evAddr && evAddr.toLowerCase() !== COOKIE_ADDRESS.toLowerCase()) continue;
+
+        if (ev.eventName === 'CookieMinted') {
+          const args: any = ev.args;
+          const tid = Number(args?.tokenId ?? args?.tokenID ?? args?.id);
+          const minter = args?.minter as `0x${string}` | undefined;
+          if (!Number.isNaN(tid) && (!minter || isAddressEqual(minter, address as `0x${string}`))) {
+            foundTokenId = tid;
+            break;
+          }
+        }
+
+        // Fallback: ERC721 Transfer(0x0 -> you, tokenId)
+        if (ev.eventName === 'Transfer') {
+          const args: any = ev.args;
+          const from = args?.from as `0x${string}`;
+          const to = args?.to as `0x${string}`;
+          const tid = Number(args?.tokenId);
+          if (
+            from &&
+            to &&
+            isAddressEqual(from, zeroAddress) &&
+            isAddressEqual(to, address as `0x${string}`) &&
+            !Number.isNaN(tid)
+          ) {
+            foundTokenId = tid;
+            break;
+          }
+        }
+      }
+    } catch {
+      // ignore decoding errors; we'll fall back to queries below
+    }
+
+    if (foundTokenId != null) {
+      setLastMinted(foundTokenId);
+      try { localStorage.setItem(`fc:lastMinted:${address}`, String(foundTokenId)); } catch {}
+    }
+
+    // refresh queries regardless
+    qc.invalidateQueries({ queryKey: ['lastMinted', address] });
+    qc.invalidateQueries({ queryKey: ['holdings', address, COOKIE_ADDRESS] });
+  }, [isConfirmed, receipt, address, qc]);
+
+  // ---------- UI ----------
   return (
-    <main className="mx-auto max-w-6xl p-6 text-zinc-100">
-      {/* Top bar with Connect Wallet (same place as before) */}
-      <div className="mb-4 flex items-center justify-end">
-        <ConnectButton chainStatus="icon" showBalance={false} />
-      </div>
+    <main className="page">
+      {/* Top bar with Connect Wallet + Balance */}
+      <header className="topbar">
+        <div className="topbar__title">Monad Fortune Cookie</div>
+        <div className="topbar__right">
+          {/* remove the custom balance pill entirely */}
+          {/* keep RainbowKit’s balance on the button */}
+          <ConnectButton
+            chainStatus="icon"
+            showBalance={{ smallScreen: true, largeScreen: true }}
+          />
+        </div>
+      </header>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        {/* LEFT CARD */}
-        <section className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-5 shadow-xl">
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
-            Mint a Fortune
-          </h2>
+      {uiError ? <div className="alert">{uiError}</div> : null}
+      {confirmError ? (
+        <div className="alert">
+          {(confirmError as any)?.shortMessage || (confirmError as any)?.message || String(confirmError)}
+        </div>
+      ) : null}
 
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1 block text-sm text-zinc-400">Topic / hint</label>
+      <div className="grid">
+        {/* LEFT: Mint Card */}
+        <section className="card">
+          <h2 className="card__title">Mint a Fortune</h2>
+
+          <div className="field">
+            <label className="label">Topic / hint</label>
+            <input
+              className="input"
+              placeholder="e.g., gas efficiency, launch day, testnet"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+            />
+          </div>
+
+          <div className="row">
+            <div className="field">
+              <label className="label">Vibe</label>
               <input
-                className="w-full rounded-lg border border-zinc-700/60 bg-zinc-800/60 px-3 py-2 outline-none"
-                placeholder="e.g., gas efficiency, launch day, testnet"
+                value={vibe}
+                onChange={(e) => setVibe(e.target.value)}
+                className="input"
+                placeholder="optimistic"
               />
             </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-sm text-zinc-400">Vibe</label>
-                <input
-                  defaultValue="optimistic"
-                  className="w-full rounded-lg border border-zinc-700/60 bg-zinc-800/60 px-3 py-2 outline-none"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm text-zinc-400">Name (optional)</label>
-                <input
-                  className="w-full rounded-lg border border-zinc-700/60 bg-zinc-800/60 px-3 py-2 outline-none"
-                  placeholder="your name/team"
-                />
-              </div>
+            <div className="field">
+              <label className="label">Name (optional)</label>
+              <input
+                value={nameOpt}
+                onChange={(e) => setNameOpt(e.target.value)}
+                className="input"
+                placeholder="your name/team"
+              />
             </div>
-
-            <button
-              type="button"
-              className="rounded-lg bg-indigo-600 px-4 py-2 font-medium hover:bg-indigo-500"
-            >
-              Generate with AI
-            </button>
-
-            <div>
-              <label className="mb-1 block text-sm text-zinc-400">Fortune (preview)</label>
-              <textarea className="h-28 w-full resize-none rounded-lg border border-zinc-700/60 bg-zinc-800/60 px-3 py-2 outline-none" />
-              <p className="mt-2 text-xs text-zinc-500">
-                Tip: keep under ~160 chars (contract allows up to 240 bytes).
-              </p>
-            </div>
-
-            <button
-              type="button"
-              className="rounded-lg bg-violet-600 px-4 py-2 font-semibold hover:bg-violet-500"
-            >
-              Mint This Fortune
-            </button>
           </div>
+
+          <button type="button" className="btn btn--primary" onClick={onGenerate} disabled={genBusy}>
+            {genBusy ? 'Generating…' : 'Generate with AI'}
+          </button>
+
+          <div className="field">
+            <label className="label">Fortune (preview)</label>
+            <textarea
+              className="textarea"
+              value={fortune}
+              onChange={(e) => setFortune(e.target.value)}
+              placeholder="Your fortune will appear here…"
+            />
+            <p className="hint">Tip: keep under ~160 chars (contract allows up to 240 bytes).</p>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn--accent"
+            onClick={onMint}
+            disabled={mintBusy || isConfirming || !connected}
+          >
+            {mintBusy ? 'Waiting for wallet…' : isConfirming ? 'Confirming…' : 'Mint This Fortune'}
+          </button>
         </section>
 
-        {/* RIGHT CARD */}
-        <section className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-5 shadow-xl">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">
-            Status
-          </h2>
+        {/* RIGHT: Status Card */}
+        <section className="card">
+          <h2 className="card__title">Status</h2>
 
-          <div className="space-y-1 text-sm">
-            <div>
-              <span className="mr-2">Status:</span>
-              <span
-                className={`rounded-full px-2 py-0.5 ${
-                  connected ? 'bg-emerald-900/40 text-emerald-200' : 'bg-zinc-700/40'
-                }`}
-              >
+          <div className="status">
+            <div className="status__row">
+              <span className="muted">Status:</span>
+              <span className={`pill ${connected ? 'pill--ok' : 'pill--off'}`}>
                 {connected ? 'Connected' : 'Disconnected'}
               </span>
             </div>
-            <div>Network: {connected ? chain?.name ?? '—' : '—'}</div>
-            <div>
-              Address:{' '}
-              {connected && address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '—'}
+            <div className="status__row">
+              <span className="muted">Network:</span>
+              <span>{connected ? chain?.name ?? '—' : '—'}</span>
+            </div>
+            <div className="status__row">
+              <span className="muted">Address:</span>
+              <span>{connected && address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '—'}</span>
             </div>
           </div>
 
           {/* Last minted */}
-          <div className="mt-6 space-y-2">
-            <div className="text-sm font-medium text-zinc-300">Last minted</div>
+          <div className="block">
+            <div className="block__title">Last minted</div>
             {!connected ? (
-              <div>—</div>
+              <div className="dash">—</div>
             ) : lastMintQ.isLoading ? (
-              <div className="text-zinc-400">loading…</div>
+              <div className="muted">loading…</div>
             ) : lastMinted == null ? (
-              <div>—</div>
+              <div className="dash">—</div>
             ) : (
-              <div className="space-x-2">
+              <div className="line">
                 <span>{`COOKIE #${lastMinted}`}</span>
-                <a
-                  href={explorerNftUrl(lastMinted)}
-                  target="_blank"
-                  className="text-indigo-300 hover:underline"
-                >
+                <a href={explorerNftUrl(lastMinted)} target="_blank" className="link">
                   view
                 </a>
-                <a
-                  href={xShareUrl(lastMinted)}
-                  target="_blank"
-                  className="text-indigo-300 hover:underline"
-                >
+                <a href={xShareUrl(lastMinted)} target="_blank" className="link">
                   share on X
                 </a>
               </div>
@@ -214,36 +412,26 @@ export default function Page() {
           </div>
 
           {/* Holdings */}
-          <div className="mt-6 space-y-2">
-            <div className="text-sm font-medium text-zinc-300">
-              All minted to this wallet <span className="text-zinc-500">(currently holding)</span>
+          <div className="block">
+            <div className="block__title">
+              All minted to this wallet <span className="muted">(currently holding)</span>
             </div>
 
             {!connected ? (
-              <div>—</div>
+              <div className="dash">—</div>
             ) : holdingsQ.isLoading ? (
-              <div className="text-zinc-400">loading…</div>
+              <div className="muted">loading…</div>
             ) : holdingIds.length === 0 ? (
-              <div>—</div>
+              <div className="dash">—</div>
             ) : (
-              <ul className="list-disc space-y-1 pl-5">
+              <ul className="list">
                 {holdingIds.map((id) => (
-                  <li key={id}>
+                  <li key={id} className="line">
                     <span>{`COOKIE #${id}`}</span>
-                    <span className="mx-1">•</span>
-                    <a
-                      href={explorerNftUrl(id)}
-                      target="_blank"
-                      className="text-indigo-300 hover:underline"
-                    >
+                    <a href={explorerNftUrl(id)} target="_blank" className="link">
                       view
                     </a>
-                    <span className="mx-1">•</span>
-                    <a
-                      href={xShareUrl(id)}
-                      target="_blank"
-                      className="text-indigo-300 hover:underline"
-                    >
+                    <a href={xShareUrl(id)} target="_blank" className="link">
                       share on X
                     </a>
                   </li>
@@ -251,12 +439,84 @@ export default function Page() {
               </ul>
             )}
 
-            {connected && scanNote ? (
-              <div className="pt-1 text-xs text-zinc-500">{scanNote}</div>
-            ) : null}
+            {connected && scanNote ? <div className="note">{scanNote}</div> : null}
           </div>
         </section>
       </div>
+
+      {/* --- Card CSS (pure CSS) --- */}
+      <style jsx>{`
+        :global(html), :global(body) { background: #0b0b10; }
+        .page { color: #e5e7eb; max-width: 1120px; margin: 0 auto; padding: 24px; }
+
+        .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; }
+        .topbar__title { font-weight: 700; letter-spacing: .02em; color: #d4d4d8; }
+        .topbar__right { display: flex; align-items: center; gap: 10px; }
+
+        .grid { display: grid; grid-template-columns: 1fr; gap: 24px; }
+        @media (min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+
+        .card {
+          background: rgba(24, 24, 28, 0.82);
+          border: 1px solid rgba(63, 63, 70, 0.7);
+          border-radius: 16px;
+          padding: 18px;
+          box-shadow: 0 10px 30px rgba(0,0,0,.3);
+        }
+        .card__title {
+          font-size: 14px; text-transform: uppercase; letter-spacing: .08em;
+          color: #a1a1aa; margin-bottom: 12px; font-weight: 700;
+        }
+
+        .row { display: grid; grid-template-columns: 1fr; gap: 14px; }
+        @media (min-width: 560px) { .row { grid-template-columns: 1fr 1fr; } }
+
+        .field { margin: 14px 0; }
+        .label { display: block; font-size: 12px; color: #9ca3af; margin-bottom: 6px; }
+        .input, .textarea {
+          width: 100%; background: rgba(39,39,42,.7);
+          border: 1px solid rgba(82,82,91,.6); border-radius: 10px;
+          padding: 10px 12px; color: #e5e7eb; outline: none;
+        }
+        .textarea { min-height: 120px; resize: vertical; }
+        .hint { margin-top: 6px; font-size: 12px; color: #9ca3af; }
+
+        .btn {
+          display: inline-block; border-radius: 10px; padding: 10px 14px;
+          font-weight: 600; border: none; cursor: pointer; margin: 6px 0;
+        }
+        .btn--primary { background: #4f46e5; color: white; }
+        .btn--primary:hover { background: #6366f1; }
+        .btn--accent { background: #7c3aed; color: white; }
+        .btn--accent:hover { background: #8b5cf6; }
+
+        .alert {
+          background: rgba(127,29,29,.25);
+          border: 1px solid rgba(185,28,28,.35);
+          color: #fecaca;
+          padding: 10px 12px;
+          border-radius: 10px;
+          margin-bottom: 12px;
+          font-size: 13px;
+        }
+
+        .status { display: grid; gap: 8px; font-size: 14px; }
+        .status__row { display: flex; align-items: center; gap: 8px; }
+        .muted { color: #9ca3af; }
+        .pill { padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+        .pill--ok { background: rgba(6,95,70,.3); color: #86efac; }
+        .pill--off { background: rgba(82,82,91,.5); color: #e5e7eb; }
+
+        .block { margin-top: 18px; }
+        .block__title { font-weight: 600; color: #d4d4d8; margin-bottom: 6px; font-size: 14px; }
+        .dash { color: #a1a1aa; }
+        .list { list-style: disc; padding-left: 18px; display: grid; gap: 6px; }
+        .line > * + * { margin-left: 10px; }
+        .link { color: #a5b4fc; text-decoration: none; }
+        .link:hover { text-decoration: underline; }
+        .note { margin-top: 6px; font-size: 12px; color: #9ca3af; }
+      `}</style>
+
     </main>
   );
 }
