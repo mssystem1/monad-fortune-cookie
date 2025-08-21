@@ -17,14 +17,20 @@
     "jsx": "preserve",
 
     "baseUrl": ".",
-    "types": ["node"],               // <-- removed "react-dom" and "react"
+    "paths": {
+      "ox": ["src/types/ox-shim.d.ts"],
+      "ox/*": ["src/types/ox-shim.d.ts"]
+    },
+
+    "types": ["node"],
     "plugins": [{ "name": "next" }]
   },
   "include": [
-    "next-env.d.ts",                 // <-- Next injects React/JSX types via this file
+    "next-env.d.ts",
     ".next/types/**/*.ts",
     "**/*.ts",
-    "**/*.tsx"
+    "**/*.tsx",
+    "src/types/ox-shim.d.ts"
   ],
   "exclude": ["node_modules"]
 }
