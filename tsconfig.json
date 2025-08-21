@@ -18,6 +18,7 @@
 
     "baseUrl": ".",
     "types": ["node"],               // <-- removed "react-dom" and "react"
+    "strict": false,
     "plugins": [{ "name": "next" }]
   },
   "include": [
