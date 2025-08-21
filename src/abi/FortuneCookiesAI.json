@@ -1,0 +1,54 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      { "name": "logoB64", "type": "string" },
+      { "name": "logoMIME", "type": "string" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "CookieMinted",
+    "inputs": [
+      { "name": "minter", "type": "address", "indexed": true },
+      { "name": "tokenId", "type": "uint256", "indexed": true },
+      { "name": "fortune", "type": "string", "indexed": false }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "function",
+    "name": "mintWithFortune",
+    "stateMutability": "nonpayable",
+    "inputs": [{ "name": "fortune", "type": "string" }],
+    "outputs": [{ "type": "uint256" }]
+  },
+  {
+    "type": "function",
+    "name": "getFortune",
+    "stateMutability": "view",
+    "inputs": [{ "name": "tokenId", "type": "uint256" }],
+    "outputs": [{ "type": "string" }]
+  },
+  {
+    "type": "function",
+    "name": "tokenURI",
+    "stateMutability": "view",
+    "inputs": [{ "name": "tokenId", "type": "uint256" }],
+    "outputs": [{ "type": "string" }]
+  },
+  {
+    "type": "function",
+    "name": "owner",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [{ "type": "address" }]
+  },
+  {
+    "type": "function",
+    "name": "supportsInterface",
+    "stateMutability": "view",
+    "inputs": [{ "type": "bytes4" }],
+    "outputs": [{ "type": "bool" }]
+  }
+]

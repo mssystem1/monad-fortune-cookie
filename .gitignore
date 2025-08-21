@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# next build output
+.next/
+out/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# env files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# vercel local metadata (optional)
+.vercel
