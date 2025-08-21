@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "postinstall": "patch-package",
+    "postinstall": "node scripts/patch-ox.js",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
