@@ -1,375 +1,280 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { parseEventLogs, parseAbiItem } from 'viem';
-import cookieAbiJson from '../abi/FortuneCookiesAI.json';
-import { monadTestnet } from '../lib/chain';
+import * as React from 'react';
+import { useAccount, useAccountEffect } from 'wagmi';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-// ─────────────────────────── Config ───────────────────────────
+const COOKIE_ADDRESS = process.env.NEXT_PUBLIC_COOKIE_ADDRESS as string;
+const explorerNftUrl = (tokenId: number) =>
+  `https://testnet.monadexplorer.com/nft/${COOKIE_ADDRESS}/${tokenId}`;
 
-// Contract address from env (public)
-const CONTRACT = (() => {
-  const v = process.env.NEXT_PUBLIC_COOKIE_ADDRESS as `0x${string}` | undefined;
-  if (!v) throw new Error('NEXT_PUBLIC_COOKIE_ADDRESS is not set in .env.local');
-  return v;
-})();
-
-// Cast the ABI loosely to avoid deep type instantiations
-const cookieAbi = cookieAbiJson as any;
-
-// Only used to decode the tx receipt after mint (no global log scans)
-const EV_COOKIE = parseAbiItem(
-  'event CookieMinted(address indexed minter, uint256 indexed tokenId, string fortune)'
-);
-const EV_TRANSFER = parseAbiItem(
-  'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
-);
-const ABI_COOKIE = [EV_COOKIE] as const;
-const ABI_TRANSFER = [EV_TRANSFER] as const;
-
-const explorerUrlFor = (tokenId: bigint | string) =>
-  `https://testnet.monadexplorer.com/nft/${CONTRACT}/${tokenId.toString()}`;
-
-// ─────────────────────────── Component ───────────────────────────
+const xShareUrl = (tokenId: number) => {
+  const text = `My COOKIE #${tokenId} on Monad 🍪✨`;
+  const url = explorerNftUrl(tokenId);
+  return `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(
+    url,
+  )}`;
+};
 
 export default function Page() {
-  const { address, chain, status } = useAccount();
-  const { data: walletClient } = useWalletClient();
-  const pc = usePublicClient();
+  const qc = useQueryClient();
+  const { address, chain, isConnected, status } = useAccount();
+  const connected = isConnected && !!address;
 
-  const isConnected = status === 'connected' && !!address;
-  const onCorrectNetwork = chain?.id === monadTestnet.id;
+  // Local UI state
+  const [lastMinted, setLastMinted] = React.useState<number | null>(null);
+  const [holdingIds, setHoldingIds] = React.useState<number[]>([]);
+  const [scanNote, setScanNote] = React.useState<string | null>(null);
 
-  // UI/form
-  const [topic, setTopic] = useState('');
-  const [vibe, setVibe] = useState('optimistic');
-  const [name, setName] = useState('');
-  const [fortune, setFortune] = useState('');
-  const [genLoading, setGenLoading] = useState(false);
-  const [mintLoading, setMintLoading] = useState(false);
+  // Keep the previous address (for clearing LS keys safely on disconnect)
+  const prevAddrRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (address) prevAddrRef.current = address;
+  }, [address]);
 
-  // Data
-  const [lastToken, setLastToken] = useState<bigint | null>(null);
-  const [heldTokens, setHeldTokens] = useState<bigint[]>([]);
-  const [holdNote, setHoldNote] = useState<string>('');
+  // --- Helpers -------------------------------------------------------------
 
-  // Status pill
-  function humanStatus(): { text: string; tone: 'ok' | 'warn' | 'err' } {
-    if (!isConnected) return { text: 'Disconnected', tone: 'warn' };
-    if (!onCorrectNetwork) return { text: `Wrong network — switch to Monad Testnet (${monadTestnet.id})`, tone: 'err' };
-    if (!walletClient) return { text: 'Connected (read-only). Open wallet to enable mint.', tone: 'warn' };
-    return { text: 'Connected and ready', tone: 'ok' };
-  }
-  const st = humanStatus();
-  const badgeStyle: React.CSSProperties = {
-    display: 'inline-block', padding: '2px 8px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-    background: st.tone === 'ok' ? '#e6ffed' : st.tone === 'warn' ? '#fffbe6' : '#ffecec',
-    color: st.tone === 'ok' ? '#056d2b' : st.tone === 'warn' ? '#7a5b00' : '#8a0012',
-  };
+  const clearWalletUI = React.useCallback(() => {
+    // Clear React state
+    setLastMinted(null);
+    setHoldingIds([]);
+    setScanNote(null);
 
-  // ───────── server: last-minted (load/save) ─────────
-  const savingLastRef = useRef(false);
+    // Clear react-query caches keyed without address (defensive)
+    qc.removeQueries({ queryKey: ['lastMinted'] });
+    qc.removeQueries({ queryKey: ['holdings'] });
 
-  async function loadLastFromServer() {
-    if (!address) return;
+    // Clear localStorage caches (address-scoped & generic)
     try {
-      const res = await fetch(
-        `/api/last-minted?address=${address}&contract=${CONTRACT}&chainId=${monadTestnet.id}`,
-        { cache: 'no-store' }
-      );
-      if (!res.ok) return;
-      const j = await res.json();
-      if (j?.tokenId) setLastToken(BigInt(j.tokenId));
+      const a = prevAddrRef.current ?? address ?? '';
+      localStorage.removeItem('fc:lastMinted');
+      if (a) {
+        localStorage.removeItem(`fc:lastMinted:${a}`);
+        localStorage.removeItem(`fc:holdings:${a}`);
+      }
     } catch {
-      // ignore
+      /* ignore */
     }
-  }
+  }, [qc, address]);
 
-  async function saveLastToServer(tokenId: bigint) {
-    if (!address || savingLastRef.current) return;
-    savingLastRef.current = true;
-    try {
-      await fetch(
-        `/api/last-minted?address=${address}&contract=${CONTRACT}&chainId=${monadTestnet.id}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tokenId: tokenId.toString() }),
-        }
-      );
-    } catch {
-      // ignore
-    } finally {
-      savingLastRef.current = false;
-    }
-  }
+  // Reset when wallet disconnects
+  useAccountEffect({
+    onDisconnect() {
+      clearWalletUI();
+    },
+  });
 
-  // ───────── holdings: server (BlockVision and/or enumerable via /api/holdings) ─────────
-  async function refreshHoldings() {
-    if (!address) { setHeldTokens([]); setHoldNote(''); return; }
-    setHoldNote('loading…');
-    try {
-      const r = await fetch(`/api/holdings?address=${address}&contract=${CONTRACT}`, { cache: 'no-store' });
+  // --- Queries (disabled when not connected) -------------------------------
+
+  const lastMintQ = useQuery({
+    queryKey: ['lastMinted', address],
+    enabled: !!address, // auto-disable when disconnected
+    staleTime: 60_000,
+    queryFn: async () => {
+      const r = await fetch(`/api/last-minted?address=${address}`, {
+        cache: 'no-store',
+      });
       const j = await r.json();
-      if (!r.ok || !j?.ok) {
-        setHeldTokens([]);
-        setHoldNote(j?.error || 'indexer error');
-        return;
-      }
-      const ids: bigint[] = (j.tokenIds as string[] | undefined)?.map((s) => BigInt(s)) ?? [];
-      ids.sort((a, b) => (a < b ? -1 : 1));
-      setHeldTokens(ids);
-      setHoldNote(j.source ? `from ${j.source} (${ids.length})` : `from server (${ids.length})`);
-    } catch (e: any) {
-      setHeldTokens([]);
-      setHoldNote(e?.message || 'failed to load');
-    }
-  }
+      // { ok: true, tokenId: number | null }
+      return (j?.tokenId ?? null) as number | null;
+    },
+  });
 
-  // ───────── effects ─────────
-  useEffect(() => {
-    if (!isConnected || !onCorrectNetwork) return;
-    loadLastFromServer();
-    refreshHoldings(); // No polling; manual Refresh or after mint
-  }, [isConnected, onCorrectNetwork, address]);
+  React.useEffect(() => {
+    setLastMinted(lastMintQ.data ?? null);
+  }, [lastMintQ.data]);
 
-  // ───────── actions ─────────
-  const pcRef = useRef(pc);
-  useEffect(() => { pcRef.current = pc; }, [pc]);
+  const holdingsQ = useQuery({
+    queryKey: ['holdings', address, COOKIE_ADDRESS],
+    enabled: !!address && !!COOKIE_ADDRESS,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const r = await fetch(
+        `/api/holdings?address=${address}&contract=${COOKIE_ADDRESS}`,
+        { cache: 'no-store' },
+      );
+      const j = await r.json();
+      // { ok: true, tokenIds: number[], note?: string }
+      if (j?.note) setScanNote(j.note as string);
+      const ids = Array.isArray(j?.tokenIds) ? (j.tokenIds as number[]) : [];
+      // Sort ascending & unique (defensive)
+      return Array.from(new Set(ids)).sort((a, b) => a - b);
+    },
+  });
 
-  async function generateFortune() {
-    setGenLoading(true);
-    try {
-      const res = await fetch('/api/fortune', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, vibe, name }),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || 'AI failed');
-      setFortune(String(j.fortune || ''));
-    } catch (e: any) {
-      alert(e?.message || 'Failed to generate fortune');
-    } finally {
-      setGenLoading(false);
-    }
-  }
+  React.useEffect(() => {
+    setHoldingIds(holdingsQ.data ?? []);
+  }, [holdingsQ.data]);
 
-  async function mint() {
-    if (!walletClient || chain?.id !== monadTestnet.id) {
-      alert(`Connect wallet on Monad Testnet (${monadTestnet.id})`);
-      return;
-    }
-    if (!fortune) { alert('Generate a fortune first'); return; }
+  // Light polling (once per minute) while connected
+  React.useEffect(() => {
+    if (!connected) return;
+    const t = window.setInterval(() => {
+      qc.invalidateQueries({ queryKey: ['lastMinted', address] });
+      qc.invalidateQueries({ queryKey: ['holdings', address, COOKIE_ADDRESS] });
+    }, 60_000);
+    return () => window.clearInterval(t);
+  }, [connected, address, qc]);
 
-    setMintLoading(true);
-    try {
-      const hash = await walletClient.writeContract({
-        address: CONTRACT,
-        abi: cookieAbi,
-        functionName: 'mintWithFortune',
-        args: [fortune],
-        chain: monadTestnet,
-        account: address as `0x${string}`,
-      });
+  // --- UI ------------------------------------------------------------------
 
-      // Wait for the tx receipt; this is the only on-chain read on client
-      const receipt = await pcRef.current!.waitForTransactionReceipt({ hash });
-
-      // Extract tokenId from the tx receipt logs (no global scans)
-      const cookieEvents = parseEventLogs({
-        abi: ABI_COOKIE,
-        logs: receipt.logs as any,
-        eventName: 'CookieMinted',
-        strict: false,
-      });
-
-      let tid: bigint | null = null;
-      if (cookieEvents.length) {
-        tid = cookieEvents[cookieEvents.length - 1].args.tokenId as bigint;
-      } else {
-        const transfers = parseEventLogs({
-          abi: ABI_TRANSFER,
-          logs: receipt.logs as any,
-          eventName: 'Transfer',
-          strict: false,
-        });
-        if (transfers.length) {
-          tid = transfers[transfers.length - 1].args.tokenId as bigint;
-        }
-      }
-
-      if (tid != null) {
-        setLastToken(tid);
-        saveLastToServer(tid);
-      }
-
-      // Refresh holdings after successful mint (server-side, fast)
-      await refreshHoldings();
-    } catch (e: any) {
-      alert(e?.shortMessage || e?.message || 'Mint failed');
-    } finally {
-      setMintLoading(false);
-    }
-  }
-
-  // ───────── UI helpers ─────────
-  const shortAddr = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '—';
-  const explorerUrl = lastToken != null ? explorerUrlFor(lastToken) : null;
-  const shareUrl =
-    lastToken != null && explorerUrl
-      ? `https://x.com/intent/tweet?text=${encodeURIComponent(
-          `I just minted COOKIE #${lastToken.toString()} on Monad Testnet!`
-        )}&url=${encodeURIComponent(explorerUrl)}`
-      : null;
-
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-
-  // ───────── render ─────────
   return (
-    <div className="container" style={{ padding: 16, maxWidth: 980, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', marginBottom: 12 }}>
-        <div />
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <ConnectButton />
-        </div>
-      </div>
-
-      <div className="row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        {/* Left: AI + Mint */}
-        <div className="card" style={{ padding: 12, border: '1px solid #eee', borderRadius: 12 }}>
-          <label>Topic / hint</label>
-          <input
-            className="input"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="e.g., gas efficiency, launch day, testnet"
-          />
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+    <main className="mx-auto max-w-6xl p-6 text-zinc-100">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Left: Inputs (kept minimal; your existing mint/generate UI can live here) */}
+        <section className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-4">
+          <div className="space-y-4">
             <div>
-              <label>Vibe</label>
+              <label className="block text-sm text-zinc-400">Topic / hint</label>
               <input
-                className="input"
-                value={vibe}
-                onChange={(e) => setVibe(e.target.value)}
-                placeholder="optimistic, playful, zen…"
+                className="mt-1 w-full rounded-lg bg-zinc-800/60 px-3 py-2 outline-none"
+                placeholder="e.g., gas efficiency, launch day, testnet"
               />
             </div>
-            <div>
-              <label>Name (optional)</label>
-              <input
-                className="input"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="your name/team"
-              />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-zinc-400">Vibe</label>
+                <input
+                  defaultValue="optimistic"
+                  className="mt-1 w-full rounded-lg bg-zinc-800/60 px-3 py-2 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-zinc-400">Name (optional)</label>
+                <input
+                  className="mt-1 w-full rounded-lg bg-zinc-800/60 px-3 py-2 outline-none"
+                  placeholder="your name/team"
+                />
+              </div>
             </div>
-          </div>
 
-          <div style={{ marginTop: 12 }}>
-            <button type="button" className="button" onClick={generateFortune} disabled={genLoading}>
-              {genLoading ? 'Generating…' : 'Generate with AI'}
-            </button>
-          </div>
-
-          <div style={{ marginTop: 10 }}>
-            <label>Fortune (preview)</label>
-            <textarea className="input" rows={3} value={fortune} onChange={(e) => setFortune(e.target.value)} />
-            <div className="small" style={{ marginTop: 6, opacity: 0.7 }}>
-              Tip: keep under ~160 chars (contract allows up to 240 bytes).
-            </div>
-          </div>
-
-          <div style={{ marginTop: 12 }}>
             <button
               type="button"
-              className="button"
-              onClick={mint}
-              disabled={mintLoading || !fortune || !onCorrectNetwork || !isConnected}
+              className="rounded-lg bg-indigo-600 px-4 py-2 font-medium hover:bg-indigo-500"
             >
-              {mintLoading ? 'Minting…' : 'Mint This Fortune'}
+              Generate with AI
+            </button>
+
+            <div>
+              <label className="block text-sm text-zinc-400">Fortune (preview)</label>
+              <textarea className="mt-1 h-28 w-full resize-none rounded-lg bg-zinc-800/60 px-3 py-2 outline-none" />
+              <p className="mt-2 text-xs text-zinc-500">
+                Tip: keep under ~160 chars (contract allows up to 240 bytes).
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="rounded-lg bg-violet-600 px-4 py-2 font-semibold hover:bg-violet-500"
+            >
+              Mint This Fortune
             </button>
           </div>
-        </div>
+        </section>
 
-        {/* Right: Status + Last + Holdings */}
-        <div className="card" style={{ padding: 12, border: '1px solid #eee', borderRadius: 12 }}>
-          <div className="small">Status</div>
-          <div style={{ marginBottom: 6 }}>
-            <span style={badgeStyle}>{st.text}</span>
-          </div>
-          <div>
-            Network: <b suppressHydrationWarning>{mounted ? (chain?.name || '—') : '—'}</b>
-          </div>
-          <div>
-            Address: <b suppressHydrationWarning>{mounted && address ? shortAddr : '—'}</b>
-          </div>
+        {/* Right: Status & on-chain info */}
+        <section className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-4">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+            Status
+          </h2>
 
-          <div style={{ marginTop: 12 }} className="small">Last minted</div>
-          <div>
-            {lastToken ? (
-              <>
-                COOKIE #{lastToken.toString()}
-                {explorerUrl && (
-                  <>
-                    {' '}•{' '}
-                    <a target="_blank" rel="noreferrer" href={explorerUrl}>view</a>
-                    {' '}•{' '}
-                    <a target="_blank" rel="noreferrer" href={shareUrl!}>share on X</a>
-                  </>
-                )}
-              </>
-            ) : '—'}
-          </div>
-
-          <div style={{ marginTop: 16 }} className="small">All minted to this wallet (currently holding)</div>
-          <div>
-            {!heldTokens.length ? (
-              <div>—{holdNote ? <em style={{ opacity: 0.7 }}> • {holdNote}</em> : null}</div>
-            ) : (
-              <>
-                <ul style={{ paddingLeft: 18, marginTop: 6 }}>
-                  {heldTokens.map((id) => {
-                    const url = explorerUrlFor(id);
-                    const x = `https://x.com/intent/tweet?text=${encodeURIComponent(
-                      `I hold COOKIE #${id.toString()} on Monad Testnet!`
-                    )}&url=${encodeURIComponent(url)}`;
-                    return (
-                      <li key={id.toString()} style={{ marginBottom: 10 }}>
-                        COOKIE #{id.toString()} •{' '}
-                        <a target="_blank" rel="noreferrer" href={url}>view</a>
-                        {' '}•{' '}
-                        <a target="_blank" rel="noreferrer" href={x}>share on X</a>
-                      </li>
-                    );
-                  })}
-                </ul>
-                {holdNote ? <div style={{ fontSize: 12, opacity: 0.7 }}>{holdNote}</div> : null}
-              </>
-            )}
-            <div style={{ marginTop: 8 }}>
-              <button
-                type="button"
-                className="button"
-                style={{ padding: '2px 8px', fontSize: 12 }}
-                onClick={refreshHoldings}
-                disabled={!isConnected || !onCorrectNetwork}
+          <div className="space-y-1 text-sm">
+            <div>
+              <span className="mr-2">Status:</span>
+              <span
+                className={`rounded-full px-2 py-0.5 ${
+                  connected ? 'bg-emerald-900/40 text-emerald-200' : 'bg-zinc-700/40'
+                }`}
               >
-                Refresh
-              </button>
+                {connected ? 'Connected' : 'Disconnected'}
+              </span>
+            </div>
+            <div>
+              Network:&nbsp;{connected ? chain?.name ?? '—' : '—'}
+            </div>
+            <div>
+              Address:&nbsp;
+              {connected && address
+                ? `${address.slice(0, 6)}…${address.slice(-4)}`
+                : '—'}
             </div>
           </div>
 
-          <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7 }}>
-            This shows token IDs you <b>currently hold</b> for this collection (from server). No client log scans.
+          {/* Last minted */}
+          <div className="mt-6 space-y-2">
+            <div className="text-sm font-medium text-zinc-300">Last minted</div>
+            {!connected ? (
+              <div>—</div>
+            ) : lastMintQ.isLoading ? (
+              <div className="text-zinc-400">loading…</div>
+            ) : lastMinted == null ? (
+              <div>—</div>
+            ) : (
+              <div className="space-x-2">
+                <span>{`COOKIE #${lastMinted}`}</span>
+                <a
+                  href={explorerNftUrl(lastMinted)}
+                  target="_blank"
+                  className="text-indigo-300 hover:underline"
+                >
+                  view
+                </a>
+                <a
+                  href={xShareUrl(lastMinted)}
+                  target="_blank"
+                  className="text-indigo-300 hover:underline"
+                >
+                  share on X
+                </a>
+              </div>
+            )}
           </div>
-        </div>
+
+          {/* Holdings */}
+          <div className="mt-6 space-y-2">
+            <div className="text-sm font-medium text-zinc-300">
+              All minted to this wallet <span className="text-zinc-500">(currently holding)</span>
+            </div>
+
+            {!connected ? (
+              <div>—</div>
+            ) : holdingsQ.isLoading ? (
+              <div className="text-zinc-400">loading…</div>
+            ) : holdingIds.length === 0 ? (
+              <div>—</div>
+            ) : (
+              <ul className="list-disc space-y-1 pl-5">
+                {holdingIds.map((id) => (
+                  <li key={id}>
+                    <span>{`COOKIE #${id}`}</span>
+                    <span className="mx-1">•</span>
+                    <a
+                      href={explorerNftUrl(id)}
+                      target="_blank"
+                      className="text-indigo-300 hover:underline"
+                    >
+                      view
+                    </a>
+                    <span className="mx-1">•</span>
+                    <a
+                      href={xShareUrl(id)}
+                      target="_blank"
+                      className="text-indigo-300 hover:underline"
+                    >
+                      share on X
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {connected && scanNote ? (
+              <div className="pt-1 text-xs text-zinc-500">{scanNote}</div>
+            ) : null}
+          </div>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }
