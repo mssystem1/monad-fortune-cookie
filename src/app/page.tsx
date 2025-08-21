@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { useAccount, useAccountEffect } from 'wagmi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 const COOKIE_ADDRESS = process.env.NEXT_PUBLIC_COOKIE_ADDRESS as string;
 
@@ -95,104 +96,154 @@ export default function Page() {
   }, [connected, address, qc]);
 
   return (
-    <main className="page-wrap">
-      <div className="grid two-col">
+    <main className="mx-auto max-w-6xl p-6 text-zinc-100">
+      {/* Top bar with Connect Wallet (same place as before) */}
+      <div className="mb-4 flex items-center justify-end">
+        <ConnectButton chainStatus="icon" showBalance={false} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         {/* LEFT CARD */}
-        <section className="card">
-          <h2 className="card-title">Mint a Fortune</h2>
+        <section className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-5 shadow-xl">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+            Mint a Fortune
+          </h2>
 
-          <div className="form-row">
-            <label className="label">Topic / hint</label>
-            <input className="input" placeholder="e.g., gas efficiency, launch day, testnet" />
-          </div>
-
-          <div className="grid two">
-            <div className="form-row">
-              <label className="label">Vibe</label>
-              <input defaultValue="optimistic" className="input" />
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1 block text-sm text-zinc-400">Topic / hint</label>
+              <input
+                className="w-full rounded-lg border border-zinc-700/60 bg-zinc-800/60 px-3 py-2 outline-none"
+                placeholder="e.g., gas efficiency, launch day, testnet"
+              />
             </div>
-            <div className="form-row">
-              <label className="label">Name (optional)</label>
-              <input className="input" placeholder="your name/team" />
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm text-zinc-400">Vibe</label>
+                <input
+                  defaultValue="optimistic"
+                  className="w-full rounded-lg border border-zinc-700/60 bg-zinc-800/60 px-3 py-2 outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-zinc-400">Name (optional)</label>
+                <input
+                  className="w-full rounded-lg border border-zinc-700/60 bg-zinc-800/60 px-3 py-2 outline-none"
+                  placeholder="your name/team"
+                />
+              </div>
             </div>
+
+            <button
+              type="button"
+              className="rounded-lg bg-indigo-600 px-4 py-2 font-medium hover:bg-indigo-500"
+            >
+              Generate with AI
+            </button>
+
+            <div>
+              <label className="mb-1 block text-sm text-zinc-400">Fortune (preview)</label>
+              <textarea className="h-28 w-full resize-none rounded-lg border border-zinc-700/60 bg-zinc-800/60 px-3 py-2 outline-none" />
+              <p className="mt-2 text-xs text-zinc-500">
+                Tip: keep under ~160 chars (contract allows up to 240 bytes).
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="rounded-lg bg-violet-600 px-4 py-2 font-semibold hover:bg-violet-500"
+            >
+              Mint This Fortune
+            </button>
           </div>
-
-          <button type="button" className="btn btn-primary">
-            Generate with AI
-          </button>
-
-          <div className="form-row">
-            <label className="label">Fortune (preview)</label>
-            <textarea className="textarea" />
-            <p className="hint">Tip: keep under ~160 chars (contract allows up to 240 bytes).</p>
-          </div>
-
-          <button type="button" className="btn btn-accent">
-            Mint This Fortune
-          </button>
         </section>
 
         {/* RIGHT CARD */}
-        <section className="card">
-          <h2 className="card-title">Status</h2>
+        <section className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-5 shadow-xl">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+            Status
+          </h2>
 
-          <div className="status">
+          <div className="space-y-1 text-sm">
             <div>
-              <span className="muted">Status:</span>{' '}
-              <span className={`pill ${connected ? 'pill-ok' : 'pill-off'}`}>
+              <span className="mr-2">Status:</span>
+              <span
+                className={`rounded-full px-2 py-0.5 ${
+                  connected ? 'bg-emerald-900/40 text-emerald-200' : 'bg-zinc-700/40'
+                }`}
+              >
                 {connected ? 'Connected' : 'Disconnected'}
               </span>
             </div>
+            <div>Network: {connected ? chain?.name ?? '—' : '—'}</div>
             <div>
-              <span className="muted">Network:</span> {connected ? chain?.name ?? '—' : '—'}
-            </div>
-            <div>
-              <span className="muted">Address:</span>{' '}
+              Address:{' '}
               {connected && address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '—'}
             </div>
           </div>
 
-          <div className="block">
-            <div className="block-title">Last minted</div>
+          {/* Last minted */}
+          <div className="mt-6 space-y-2">
+            <div className="text-sm font-medium text-zinc-300">Last minted</div>
             {!connected ? (
-              <div className="dash">—</div>
+              <div>—</div>
             ) : lastMintQ.isLoading ? (
-              <div className="muted">loading…</div>
+              <div className="text-zinc-400">loading…</div>
             ) : lastMinted == null ? (
-              <div className="dash">—</div>
+              <div>—</div>
             ) : (
-              <div className="line">
+              <div className="space-x-2">
                 <span>{`COOKIE #${lastMinted}`}</span>
-                <a href={explorerNftUrl(lastMinted)} target="_blank" className="link">
+                <a
+                  href={explorerNftUrl(lastMinted)}
+                  target="_blank"
+                  className="text-indigo-300 hover:underline"
+                >
                   view
                 </a>
-                <a href={xShareUrl(lastMinted)} target="_blank" className="link">
+                <a
+                  href={xShareUrl(lastMinted)}
+                  target="_blank"
+                  className="text-indigo-300 hover:underline"
+                >
                   share on X
                 </a>
               </div>
             )}
           </div>
 
-          <div className="block">
-            <div className="block-title">
-              All minted to this wallet <span className="muted">(currently holding)</span>
+          {/* Holdings */}
+          <div className="mt-6 space-y-2">
+            <div className="text-sm font-medium text-zinc-300">
+              All minted to this wallet <span className="text-zinc-500">(currently holding)</span>
             </div>
 
             {!connected ? (
-              <div className="dash">—</div>
+              <div>—</div>
             ) : holdingsQ.isLoading ? (
-              <div className="muted">loading…</div>
+              <div className="text-zinc-400">loading…</div>
             ) : holdingIds.length === 0 ? (
-              <div className="dash">—</div>
+              <div>—</div>
             ) : (
-              <ul className="list">
+              <ul className="list-disc space-y-1 pl-5">
                 {holdingIds.map((id) => (
-                  <li key={id} className="line">
+                  <li key={id}>
                     <span>{`COOKIE #${id}`}</span>
-                    <a href={explorerNftUrl(id)} target="_blank" className="link">
+                    <span className="mx-1">•</span>
+                    <a
+                      href={explorerNftUrl(id)}
+                      target="_blank"
+                      className="text-indigo-300 hover:underline"
+                    >
                       view
                     </a>
-                    <a href={xShareUrl(id)} target="_blank" className="link">
+                    <span className="mx-1">•</span>
+                    <a
+                      href={xShareUrl(id)}
+                      target="_blank"
+                      className="text-indigo-300 hover:underline"
+                    >
                       share on X
                     </a>
                   </li>
@@ -200,155 +251,12 @@ export default function Page() {
               </ul>
             )}
 
-            {connected && scanNote ? <div className="note">{scanNote}</div> : null}
+            {connected && scanNote ? (
+              <div className="pt-1 text-xs text-zinc-500">{scanNote}</div>
+            ) : null}
           </div>
         </section>
       </div>
-
-      {/* ---- Minimal fallback CSS so it looks like cards even if Tailwind isn't loaded ---- */}
-      <style jsx>{`
-        .page-wrap {
-          color: #e5e7eb;
-          background: #0b0b10;
-          min-height: 100dvh;
-          padding: 24px;
-        }
-        .grid.two-col {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 24px;
-        }
-        @media (min-width: 900px) {
-          .grid.two-col {
-            grid-template-columns: 1fr 1fr;
-          }
-        }
-        .card {
-          background: rgba(24, 24, 28, 0.8);
-          border: 1px solid rgba(63, 63, 70, 0.7);
-          border-radius: 16px;
-          padding: 18px;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-        }
-        .card-title {
-          font-size: 13px;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: #a1a1aa;
-          margin-bottom: 12px;
-          font-weight: 700;
-        }
-        .form-row {
-          margin: 14px 0;
-        }
-        .label {
-          display: block;
-          font-size: 12px;
-          color: #9ca3af;
-          margin-bottom: 6px;
-        }
-        .input,
-        .textarea {
-          width: 100%;
-          background: rgba(39, 39, 42, 0.7);
-          border: 1px solid rgba(82, 82, 91, 0.6);
-          border-radius: 10px;
-          padding: 10px 12px;
-          color: #e5e7eb;
-          outline: none;
-        }
-        .textarea {
-          min-height: 120px;
-          resize: vertical;
-        }
-        .hint {
-          margin-top: 6px;
-          font-size: 12px;
-          color: #9ca3af;
-        }
-        .grid.two {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 14px;
-        }
-        .btn {
-          display: inline-block;
-          border-radius: 10px;
-          padding: 10px 14px;
-          font-weight: 600;
-          border: none;
-          cursor: pointer;
-          margin: 6px 0;
-        }
-        .btn-primary {
-          background: #4f46e5;
-          color: white;
-        }
-        .btn-primary:hover {
-          background: #6366f1;
-        }
-        .btn-accent {
-          background: #7c3aed;
-          color: white;
-        }
-        .btn-accent:hover {
-          background: #8b5cf6;
-        }
-        .status {
-          display: grid;
-          gap: 6px;
-          font-size: 14px;
-        }
-        .muted {
-          color: #9ca3af;
-        }
-        .pill {
-          padding: 2px 8px;
-          border-radius: 999px;
-          font-size: 12px;
-        }
-        .pill-ok {
-          background: rgba(6, 95, 70, 0.3);
-          color: #86efac;
-        }
-        .pill-off {
-          background: rgba(82, 82, 91, 0.5);
-          color: #e5e7eb;
-        }
-        .block {
-          margin-top: 18px;
-        }
-        .block-title {
-          font-weight: 600;
-          color: #d4d4d8;
-          margin-bottom: 6px;
-          font-size: 14px;
-        }
-        .dash {
-          color: #a1a1aa;
-        }
-        .list {
-          list-style: disc;
-          padding-left: 18px;
-          display: grid;
-          gap: 6px;
-        }
-        .line > * + * {
-          margin-left: 10px;
-        }
-        .link {
-          color: #a5b4fc;
-          text-decoration: none;
-        }
-        .link:hover {
-          text-decoration: underline;
-        }
-        .note {
-          margin-top: 6px;
-          font-size: 12px;
-          color: #9ca3af;
-        }
-      `}</style>
     </main>
   );
 }
