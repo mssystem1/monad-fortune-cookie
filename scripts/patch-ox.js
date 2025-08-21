@@ -2,22 +2,22 @@
 const fs = require('fs');
 const path = require('path');
 
-// Resolve the installed "ox" directory via its package.json (works with exports map)
-let oxPkg;
+// Find installed "ox" package root
+let oxPkgPath;
 try {
-  oxPkg = require.resolve('ox/package.json', { paths: [process.cwd()] });
+  oxPkgPath = require.resolve('ox/package.json', { paths: [process.cwd()] });
 } catch (e) {
-  console.error('Cannot resolve ox/package.json. Is "ox" installed?', e.message);
-  process.exit(1);
+  console.log('[patch-ox] ox not installed; skipping.');
+  process.exit(0);
 }
-const oxRoot = path.dirname(oxPkg);
+const oxRoot = path.dirname(oxPkgPath);
 
-// Candidate locations (some versions publish TS, others JS or dist/)
+// Candidate file locations across ox versions
 const candidates = [
   'core/Signature.ts',
-  'core/Signature.js',
   'src/core/Signature.ts',
   'dist/core/Signature.js',
+  'core/Signature.js',
 ];
 
 let target = null;
@@ -27,23 +27,26 @@ for (const rel of candidates) {
 }
 
 if (!target) {
-  console.error('Could not locate ox Signature file. Checked:', candidates);
-  process.exit(1);
-}
-
-let s = fs.readFileSync(target, 'utf8');
-const before = /if\s*\(\s*signature\.v\s*\)\s*return\s*fromLegacy\(\s*signature\s*\)/;
-
-// Only patch if it matches the old line
-if (!before.test(s)) {
-  console.log('Already patched or pattern not found:', target);
+  console.log('[patch-ox] could not locate Signature file in ox. Checked:', candidates);
   process.exit(0);
 }
 
-// Safer check so TS 5.6+ union narrowing doesn’t explode in CI
-const after =
-  "if ('v' in (signature as any) && (signature as any).v != null) return fromLegacy(signature as any)";
+// Read file & inject ts-nocheck if not already present
+let text = fs.readFileSync(target, 'utf8');
+if (!/^\s*\/\/\s*@ts-nocheck/m.test(text)) {
+  text = `// @ts-nocheck\n${text}`;
+  fs.writeFileSync(target, text);
+  console.log('[patch-ox] added // @ts-nocheck to:', target);
+} else {
+  console.log('[patch-ox] already patched:', target);
+}
 
-s = s.replace(before, after);
-fs.writeFileSync(target, s);
-console.log('patched:', target);
+// Optional: also relax the exact narrowing line if present (defensive)
+const before = /if\s*\(\s*signature\.v\s*\)\s*return\s*fromLegacy\(\s*signature\s*\)/;
+if (before.test(text)) {
+  const after =
+    "if ('v' in (signature as any) && (signature as any).v != null) return fromLegacy(signature as any)";
+  text = text.replace(before, after);
+  fs.writeFileSync(target, text);
+  console.log('[patch-ox] relaxed narrowing in:', target);
+}
