@@ -24,6 +24,7 @@
     "wagmi": "^2.16.4"
   },
   "devDependencies": {
-    "pino-pretty": "^13.1.1"
+    "pino-pretty": "^13.1.1",
+    "typescript": "^5.5.4"
   }
 }
