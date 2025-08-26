@@ -15,7 +15,7 @@ import {
   useBalance,
 } from 'wagmi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+//import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 // ⬇️ RELATIVE imports (adjust paths if yours differ)
 import FortuneABI from '../abi/FortuneCookiesAI.json';
@@ -287,18 +287,6 @@ export default function Page() {
   // ---------- UI ----------
   return (
     <main className="page">
-      {/* Top bar with Connect Wallet + Balance */}
-      <header className="topbar">
-        <div className="topbar__title">Monad Fortune Cookie</div>
-        <div className="topbar__right">
-          {/* remove the custom balance pill entirely */}
-          {/* keep RainbowKit’s balance on the button */}
-          <ConnectButton
-            chainStatus="icon"
-            showBalance={{ smallScreen: true, largeScreen: true }}
-          />
-        </div>
-      </header>
 
       {uiError ? <div className="alert">{uiError}</div> : null}
       {confirmError ? (
@@ -309,10 +297,11 @@ export default function Page() {
 
       <div className="grid">
         {/* LEFT: Mint Card */}
-        <section className="card">
+        <section className="card card--mint">
           <h2 className="card__title">Mint a Fortune</h2>
 
-          <div className="field">
+        <div className="two-col">
+          <div className="field field--full">
             <label className="label">Topic / hint</label>
             <input
               className="input"
@@ -323,7 +312,7 @@ export default function Page() {
           </div>
 
           <div className="row">
-            <div className="field">
+            <div className="field field--full">
               <label className="label">Vibe</label>
               <input
                 value={vibe}
@@ -332,7 +321,7 @@ export default function Page() {
                 placeholder="optimistic"
               />
             </div>
-            <div className="field">
+            <div className="field field--full">
               <label className="label">Name (optional)</label>
               <input
                 value={nameOpt}
@@ -342,12 +331,13 @@ export default function Page() {
               />
             </div>
           </div>
-
+        </div>
           <button type="button" className="btn btn--primary" onClick={onGenerate} disabled={genBusy}>
             {genBusy ? 'Generating…' : 'Generate with AI'}
           </button>
 
-          <div className="field">
+        <div className="two-col">
+          <div className="field field--full">
             <label className="label">Fortune (preview)</label>
             <textarea
               className="textarea"
@@ -357,6 +347,7 @@ export default function Page() {
             />
             <p className="hint">Tip: keep under ~160 chars (contract allows up to 240 bytes).</p>
           </div>
+        </div>
 
           <button
             type="button"
@@ -447,7 +438,7 @@ export default function Page() {
       {/* --- Card CSS (pure CSS) --- */}
       <style jsx>{`
         :global(html), :global(body) { background: #0b0b10; }
-        .page { color: #e5e7eb; max-width: 1120px; margin: 0 auto; padding: 24px; }
+        .page { color: #e5e7eb; max-width: 1280px; margin: 0 auto; padding: 24px; }
 
         .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; }
         .topbar__title { font-weight: 700; letter-spacing: .02em; color: #d4d4d8; }
@@ -463,6 +454,9 @@ export default function Page() {
           padding: 18px;
           box-shadow: 0 10px 30px rgba(0,0,0,.3);
         }
+        .card--mint .field--full .input,
+        .card--mint .field--full .textarea { max-width: 100%; }
+
         .card__title {
           font-size: 14px; text-transform: uppercase; letter-spacing: .08em;
           color: #a1a1aa; margin-bottom: 12px; font-weight: 700;
@@ -471,15 +465,27 @@ export default function Page() {
         .row { display: grid; grid-template-columns: 1fr; gap: 14px; }
         @media (min-width: 560px) { .row { grid-template-columns: 1fr 1fr; } }
 
-        .field { margin: 14px 0; }
-        .label { display: block; font-size: 12px; color: #9ca3af; margin-bottom: 6px; }
+        .field { margin: 10px 0; }
+        .label { display: block; font-size: 12px; color: #9ca3af; margin-bottom: 4px; }
         .input, .textarea {
           width: 100%; background: rgba(39,39,42,.7);
           border: 1px solid rgba(82,82,91,.6); border-radius: 10px;
-          padding: 10px 12px; color: #e5e7eb; outline: none;
+          padding: 8px 12px; color: #e5e7eb; outline: none;
         }
         .textarea { min-height: 120px; resize: vertical; }
         .hint { margin-top: 6px; font-size: 12px; color: #9ca3af; }
+
+        .two-col {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); /* key fix */
+          gap: 14px; /* keep your spacing */
+        }
+
+        .two-col .input {
+          display: block;
+          width: 100%;
+          box-sizing: border-box;
+        }
 
         .btn {
           display: inline-block; border-radius: 10px; padding: 10px 14px;

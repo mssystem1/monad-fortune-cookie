@@ -1,19 +1,33 @@
-import './globals.css';
-import type { Metadata } from 'next';
-import '@rainbow-me/rainbowkit/styles.css';
-import './globals.css';
-import Providers from './providers';
+import type { Metadata } from "next";
+import Providers from "./providers";
+import NavTabs from "../components/NavTabs";
 
 export const metadata: Metadata = {
-  title: 'Monad Fortune Cookie',
-  description: 'AI + Monad fortune cookie dapp',
+  title: "Monad Fortune Cookie",
+  description: "AI blessing cookies on Monad Testnet",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-dvh bg-[#0b0b10] text-zinc-100 antialiased">
-        <Providers>{children}</Providers>
+      <body
+        style={{
+          background: "#000", // global BG black
+          fontFamily:
+            'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial',
+        }}
+      >
+        <Providers>
+          {/* Header (tabs + wallet button). Keep shell same; only page below changes with routing */}
+          <div style={{ maxWidth: 1280, margin: "0 auto", padding: 16 }}>
+            <NavTabs />
+          </div>
+
+          {/* Page content */}
+          <div style={{ maxWidth: 1280, margin: "0 auto", padding: 16 }}>
+            {children}
+          </div>
+        </Providers>
       </body>
     </html>
   );
