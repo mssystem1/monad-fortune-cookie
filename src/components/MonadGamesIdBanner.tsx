@@ -188,14 +188,14 @@ const openUsernameWindow = React.useCallback(() => {
   useAccountEffect({
     onConnect() {
       // Reset session score each time a wallet connects
-      //setSessionMints(0);
+      setSessionMints(0);
       checkLinked();
     },
     onDisconnect() {
       setStatus(null);
       setUsername(null);
       setCrossAppAddr(null);
-      //setSessionMints(0);
+      setSessionMints(0);
       setScorePreview(null);
       setTxPreview(null);
       setTotalScorePreview(null);
