@@ -25,7 +25,7 @@ export default function Page() {
             }}
           />
           <p style={{ marginBottom: 20, color: "#9ca3af" }}>
-            Ranked by number of cookie <strong>mints</strong> to each wallet (Top-20).
+            Ranked by number of cookie <strong>mints</strong> to each wallet (Top-20). <strong>Updates every 5 minutes</strong>
           </p>
           <MgidLeaderboardClient />
         </div>
