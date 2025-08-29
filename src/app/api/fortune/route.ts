@@ -2,36 +2,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
-export const runtime = 'nodejs';        // avoid edge-env surprises
-export const dynamic = 'force-dynamic'; // run on every request
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-// Remove trailing spaces, newlines, zero-width & BOM chars that often sneak in from dashboards.
-function sanitizeKey(raw: string): string {
-  // strip BOM
-  let v = raw.replace(/^\uFEFF/, '');
-  // strip zero-width chars (ZWSP/ZWNJ/ZWJ) and all whitespace (incl. \r\n, tabs)
-  v = v.replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, '');
-  return v;
+function sanitizeKey(raw: string) {
+  // strip BOM + zero-width + whitespace/newlines
+  return (raw || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim();
 }
 
 export async function POST(req: NextRequest) {
-  const raw =   
-  process.env.OPENAI_API_KEY_MFC ??   // prefer the new var name
-  process.env.OPENAI_API_KEY ??       // fallback
-  '';
+  // 👇 Force runtime lookup via bracket access so Next/Vercel cannot inline at build.
+  const KEY_NAME = (process.env['MFC_OPENAI_KEY_NAME'] || 'OPENAI_API_KEY_MFC').trim();
+  const raw =
+    (process.env[KEY_NAME] as string | undefined) ??
+    (process.env['OPENAI_API_KEY'] as string | undefined) ??
+    '';
   const apiKey = sanitizeKey(raw);
 
   if (!apiKey) {
     return NextResponse.json({ error: 'OPENAI_API_KEY missing on server' }, { status: 500 });
   }
 
-  // Quick guard: if sanitizing changed the value length, we’ll log a hint (not the key)
-  if (raw.length !== apiKey.length) {
-    console.warn(
-      `[fortune] OPENAI_API_KEY contained hidden whitespace/zero-width chars. ` +
-      `RawLen=${raw.length}, SanitizedLen=${apiKey.length}`
-    );
-  }
+  const client = new OpenAI({ apiKey });
 
   const { topic = '', vibe = 'optimistic', name = '' } =
     await req.json().catch(() => ({} as any));
@@ -44,8 +39,6 @@ export async function POST(req: NextRequest) {
     'Max 240 chars.',
   ].filter(Boolean).join(' ');
 
-  const client = new OpenAI({ apiKey });
-
   try {
     const r = await client.responses.create({
       model: 'gpt-4o-mini',
@@ -53,16 +46,11 @@ export async function POST(req: NextRequest) {
     });
 
     const fortune = (r.output_text ?? '').trim();
-    if (!fortune) {
-      return NextResponse.json({ error: 'No content from model' }, { status: 502 });
-    }
+    if (!fortune) return NextResponse.json({ error: 'No content from model' }, { status: 502 });
     return NextResponse.json({ fortune });
   } catch (e: any) {
-    // Surface status + message without leaking secrets
-    const status = typeof e?.status === 'number' ? e.status : 502;
-    console.error('[fortune] OpenAI error:', { status, message: e?.message });
     return NextResponse.json(
-      { error: `OpenAI error: ${status} ${e?.message ?? e}` },
+      { error: `OpenAI error: ${e?.status ?? ''} ${e?.message ?? e}` },
       { status: 502 }
     );
   }
