@@ -2,11 +2,7 @@
 
 import * as React from 'react';
 import type { Abi } from 'viem';
-import {
-  isAddressEqual,
-  parseEventLogs,
-  zeroAddress,
-} from 'viem';
+import { isAddressEqual, parseEventLogs, zeroAddress } from 'viem';
 import {
   useAccount,
   useAccountEffect,
@@ -15,17 +11,19 @@ import {
   useBalance,
 } from 'wagmi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-//import { ConnectButton } from '@rainbow-me/rainbowkit';
 
-// ⬇️ RELATIVE imports (adjust paths if yours differ)
+// ⬇️ RELATIVE imports (keep your own)
 import FortuneABI from '../abi/FortuneCookiesAI.json';
 import { monadTestnet } from '../lib/chain';
+
+// [FIXED] Privy + banner
+import { PrivyProvider } from '@privy-io/react-auth';
+import MonadGamesIdBanner from '../components/MonadGamesIdBanner';
 
 const COOKIE_ADDRESS = process.env.NEXT_PUBLIC_COOKIE_ADDRESS as `0x${string}`;
 
 const explorerNftUrl = (tokenId: number) =>
   `https://testnet.monadexplorer.com/nft/${COOKIE_ADDRESS}/${tokenId}`;
-
 const xShareUrl = (tokenId: number) => {
   const text = `My COOKIE #${tokenId} on Monad 🍪✨`;
   return `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(
@@ -37,6 +35,25 @@ export default function Page() {
   const qc = useQueryClient();
   const { address, chain, isConnected } = useAccount();
   const connected = isConnected && !!address;
+
+  // [FIXED] load Privy config from server-only env via /api/privy-config
+  const [privyCfg, setPrivyCfg] = React.useState<{ appId: string; providerAppId: string } | null>(null);
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch('/api/privy-config', { cache: 'no-store' });
+        if (!r.ok) throw new Error(String(r.status));
+        const j = (await r.json()) as { appId: string; providerAppId: string };
+        if (alive) setPrivyCfg(j);
+      } catch {
+        if (alive) setPrivyCfg(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Wallet balance (shown in top bar)
   const { data: balance } = useBalance({
@@ -50,11 +67,9 @@ export default function Page() {
   const [vibe, setVibe] = React.useState('optimistic');
   const [nameOpt, setNameOpt] = React.useState('');
   const [fortune, setFortune] = React.useState('');
-
   const [genBusy, setGenBusy] = React.useState(false);
   const [mintBusy, setMintBusy] = React.useState(false);
   const [uiError, setUiError] = React.useState<string | null>(null);
-
   const [lastMinted, setLastMinted] = React.useState<number | null>(null);
   const [holdingIds, setHoldingIds] = React.useState<number[]>([]);
   const [scanNote, setScanNote] = React.useState<string | null>(null);
@@ -107,7 +122,9 @@ export default function Page() {
     const serverVal = lastMintQ.data;
     if (serverVal != null) {
       setLastMinted(serverVal);
-      try { localStorage.setItem(`fc:lastMinted:${address}`, String(serverVal)); } catch {}
+      try {
+        localStorage.setItem(`fc:lastMinted:${address}`, String(serverVal));
+      } catch {}
       return;
     }
     // server null/404 → try localStorage
@@ -138,10 +155,12 @@ export default function Page() {
   React.useEffect(() => {
     if (lastMintQ.isLoading) return;
     if (!connected) return;
-    if ((lastMintQ.data == null) && holdingsQ.data && holdingsQ.data.length > 0) {
+    if (lastMintQ.data == null && holdingsQ.data && holdingsQ.data.length > 0) {
       const mx = holdingsQ.data[holdingsQ.data.length - 1];
       setLastMinted(mx);
-      try { localStorage.setItem(`fc:lastMinted:${address}`, String(mx)); } catch {}
+      try {
+        localStorage.setItem(`fc:lastMinted:${address}`, String(mx));
+      } catch {}
     }
   }, [connected, address, lastMintQ.isLoading, lastMintQ.data, holdingsQ.data]);
 
@@ -223,7 +242,7 @@ export default function Page() {
     error: confirmError,
   } = useWaitForTransactionReceipt({ hash: txHash });
 
-  // Parse receipt logs safely with parseEventLogs (avoids topics tuple typing issues)
+  // Parse receipt logs safely with parseEventLogs
   React.useEffect(() => {
     if (!isConfirmed || !receipt || !address) return;
 
@@ -232,13 +251,12 @@ export default function Page() {
     try {
       const decoded = parseEventLogs({
         abi: FortuneABI as Abi,
-        logs: (receipt.logs ?? []) as any, // viem will decode those matching the ABI
+        logs: (receipt.logs ?? []) as any,
       });
 
       for (const ev of decoded) {
         if (!ev || (ev as any).eventName == null) continue;
 
-        // Restrict to our contract address (if present on the decoded log)
         const evAddr = (ev as any).address as `0x${string}` | undefined;
         if (evAddr && evAddr.toLowerCase() !== COOKIE_ADDRESS.toLowerCase()) continue;
 
@@ -252,7 +270,6 @@ export default function Page() {
           }
         }
 
-        // Fallback: ERC721 Transfer(0x0 -> you, tokenId)
         if (ev.eventName === 'Transfer') {
           const args: any = ev.args;
           const from = args?.from as `0x${string}`;
@@ -271,27 +288,34 @@ export default function Page() {
         }
       }
     } catch {
-      // ignore decoding errors; we'll fall back to queries below
+      // ignore
     }
 
     if (foundTokenId != null) {
       setLastMinted(foundTokenId);
-      try { localStorage.setItem(`fc:lastMinted:${address}`, String(foundTokenId)); } catch {}
+      try {
+        localStorage.setItem(`fc:lastMinted:${address}`, String(foundTokenId));
+      } catch {}
     }
 
-    // refresh queries regardless
     qc.invalidateQueries({ queryKey: ['lastMinted', address] });
     qc.invalidateQueries({ queryKey: ['holdings', address, COOKIE_ADDRESS] });
   }, [isConfirmed, receipt, address, qc]);
 
   // ---------- UI ----------
-  return (
+
+  // [FIXED] Declare content BEFORE using it
+  const content = (
     <main className="page">
+      {/* Monad Games ID banner */}
+      {privyCfg ? <MonadGamesIdBanner /> : null}
 
       {uiError ? <div className="alert">{uiError}</div> : null}
       {confirmError ? (
         <div className="alert">
-          {(confirmError as any)?.shortMessage || (confirmError as any)?.message || String(confirmError)}
+          {(confirmError as any)?.shortMessage ||
+            (confirmError as any)?.message ||
+            String(confirmError)}
         </div>
       ) : null}
 
@@ -300,54 +324,60 @@ export default function Page() {
         <section className="card card--mint">
           <h2 className="card__title">Mint a Fortune</h2>
 
-        <div className="two-col">
-          <div className="field field--full">
-            <label className="label">Topic / hint</label>
-            <input
-              className="input"
-              placeholder="e.g., gas efficiency, launch day, testnet"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-            />
+          <div className="two-col">
+            <div className="field field--full">
+              <label className="label">Topic / hint</label>
+              <input
+                className="input"
+                placeholder="e.g., gas efficiency, launch day, testnet"
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+              />
+            </div>
+
+            <div className="row">
+              <div className="field field--full">
+                <label className="label">Vibe</label>
+                <input
+                  value={vibe}
+                  onChange={(e) => setVibe(e.target.value)}
+                  className="input"
+                  placeholder="optimistic"
+                />
+              </div>
+              <div className="field field--full">
+                <label className="label">Name (optional)</label>
+                <input
+                  value={nameOpt}
+                  onChange={(e) => setNameOpt(e.target.value)}
+                  className="input"
+                  placeholder="your name/team"
+                />
+              </div>
+            </div>
           </div>
 
-          <div className="row">
-            <div className="field field--full">
-              <label className="label">Vibe</label>
-              <input
-                value={vibe}
-                onChange={(e) => setVibe(e.target.value)}
-                className="input"
-                placeholder="optimistic"
-              />
-            </div>
-            <div className="field field--full">
-              <label className="label">Name (optional)</label>
-              <input
-                value={nameOpt}
-                onChange={(e) => setNameOpt(e.target.value)}
-                className="input"
-                placeholder="your name/team"
-              />
-            </div>
-          </div>
-        </div>
-          <button type="button" className="btn btn--primary" onClick={onGenerate} disabled={genBusy}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={onGenerate}
+            disabled={genBusy}
+          >
             {genBusy ? 'Generating…' : 'Generate with AI'}
           </button>
 
-        <div className="two-col">
-          <div className="field field--full">
-            <label className="label">Fortune (preview)</label>
-            <textarea
-              className="textarea"
-              value={fortune}
-              onChange={(e) => setFortune(e.target.value)}
-              placeholder="Your fortune will appear here…"
-            />
-            <p className="hint">Tip: keep under ~160 chars (contract allows up to 240 bytes).</p>
+          <div className="two-col">
+            <div className="field field--full">
+              <label className="label">Fortune (preview)</label>
+              <textarea
+                className="textarea"
+                value={fortune}
+                onChange={(e) => setFortune(e.target.value)}
+                placeholder="Your fortune will appear here…"
+              />
+              <p className="hint">Tip: keep under ~160 chars (contract allows up to 240 bytes).</p>
+            </div>
           </div>
-        </div>
 
           <button
             type="button"
@@ -376,7 +406,9 @@ export default function Page() {
             </div>
             <div className="status__row">
               <span className="muted">Address:</span>
-              <span>{connected && address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '—'}</span>
+              <span>
+                {connected && address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '—'}
+              </span>
             </div>
           </div>
 
@@ -435,94 +467,200 @@ export default function Page() {
         </section>
       </div>
 
-      {/* --- Card CSS (pure CSS) --- */}
+      {/* --- Card CSS --- */}
       <style jsx>{`
-        :global(html), :global(body) { background: #0b0b10; }
-        .page { color: #e5e7eb; max-width: 1280px; margin: 0 auto; padding: 24px; }
-
-        .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; }
-        .topbar__title { font-weight: 700; letter-spacing: .02em; color: #d4d4d8; }
-        .topbar__right { display: flex; align-items: center; gap: 10px; }
-
-        .grid { display: grid; grid-template-columns: 1fr; gap: 24px; }
-        @media (min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
-
+        :global(html),
+        :global(body) {
+          background: #0b0b10;
+        }
+        .page {
+          color: #e5e7eb;
+          max-width: 1280px;
+          margin: 0 auto;
+          padding: 24px;
+        }
+        .grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 24px;
+        }
+        @media (min-width: 900px) {
+          .grid {
+            grid-template-columns: 1fr 1fr;
+          }
+        }
         .card {
           background: rgba(24, 24, 28, 0.82);
           border: 1px solid rgba(63, 63, 70, 0.7);
           border-radius: 16px;
           padding: 18px;
-          box-shadow: 0 10px 30px rgba(0,0,0,.3);
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
         }
-        .card--mint .field--full .input,
-        .card--mint .field--full .textarea { max-width: 100%; }
-
         .card__title {
-          font-size: 14px; text-transform: uppercase; letter-spacing: .08em;
-          color: #a1a1aa; margin-bottom: 12px; font-weight: 700;
+          font-size: 14px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #a1a1aa;
+          margin-bottom: 12px;
+          font-weight: 700;
         }
-
-        .row { display: grid; grid-template-columns: 1fr; gap: 14px; }
-        @media (min-width: 560px) { .row { grid-template-columns: 1fr 1fr; } }
-
-        .field { margin: 10px 0; }
-        .label { display: block; font-size: 12px; color: #9ca3af; margin-bottom: 4px; }
-        .input, .textarea {
-          width: 100%; background: rgba(39,39,42,.7);
-          border: 1px solid rgba(82,82,91,.6); border-radius: 10px;
-          padding: 8px 12px; color: #e5e7eb; outline: none;
+        .row {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 14px;
         }
-        .textarea { min-height: 120px; resize: vertical; }
-        .hint { margin-top: 6px; font-size: 12px; color: #9ca3af; }
-
+        @media (min-width: 560px) {
+          .row {
+            grid-template-columns: 1fr 1fr;
+          }
+        }
+        .field {
+          margin: 10px 0;
+        }
+        .label {
+          display: block;
+          font-size: 12px;
+          color: #9ca3af;
+          margin-bottom: 4px;
+        }
+        .input,
+        .textarea {
+          width: 100%;
+          background: rgba(39, 39, 42, 0.7);
+          border: 1px solid rgba(82, 82, 91, 0.6);
+          border-radius: 10px;
+          padding: 8px 12px;
+          color: #e5e7eb;
+          outline: none;
+        }
+        .textarea {
+          min-height: 120px;
+          resize: vertical;
+        }
+        .hint {
+          margin-top: 6px;
+          font-size: 12px;
+          color: #9ca3af;
+        }
         .two-col {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); /* key fix */
-          gap: 14px; /* keep your spacing */
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 14px;
         }
-
         .two-col .input {
           display: block;
           width: 100%;
           box-sizing: border-box;
         }
-
         .btn {
-          display: inline-block; border-radius: 10px; padding: 10px 14px;
-          font-weight: 600; border: none; cursor: pointer; margin: 6px 0;
+          display: inline-block;
+          border-radius: 10px;
+          padding: 10px 14px;
+          font-weight: 600;
+          border: none;
+          cursor: pointer;
+          margin: 6px 0;
         }
-        .btn--primary { background: #4f46e5; color: white; }
-        .btn--primary:hover { background: #6366f1; }
-        .btn--accent { background: #7c3aed; color: white; }
-        .btn--accent:hover { background: #8b5cf6; }
-
+        .btn--primary {
+          background: #4f46e5;
+          color: white;
+        }
+        .btn--primary:hover {
+          background: #6366f1;
+        }
+        .btn--accent {
+          background: #7c3aed;
+          color: white;
+        }
+        .btn--accent:hover {
+          background: #8b5cf6;
+        }
         .alert {
-          background: rgba(127,29,29,.25);
-          border: 1px solid rgba(185,28,28,.35);
+          background: rgba(127, 29, 29, 0.25);
+          border: 1px solid rgba(185, 28, 28, 0.35);
           color: #fecaca;
           padding: 10px 12px;
           border-radius: 10px;
           margin-bottom: 12px;
           font-size: 13px;
         }
-
-        .status { display: grid; gap: 8px; font-size: 14px; }
-        .status__row { display: flex; align-items: center; gap: 8px; }
-        .muted { color: #9ca3af; }
-        .pill { padding: 2px 8px; border-radius: 999px; font-size: 12px; }
-        .pill--ok { background: rgba(6,95,70,.3); color: #86efac; }
-        .pill--off { background: rgba(82,82,91,.5); color: #e5e7eb; }
-
-        .block { margin-top: 18px; }
-        .block__title { font-weight: 600; color: #d4d4d8; margin-bottom: 6px; font-size: 14px; }
-        .dash { color: #a1a1aa; }
-        .list { list-style: disc; padding-left: 18px; display: grid; gap: 6px; }
-        .line > * + * { margin-left: 10px; }
-        .link { color: #a5b4fc; text-decoration: none; }
-        .link:hover { text-decoration: underline; }
-        .note { margin-top: 6px; font-size: 12px; color: #9ca3af; }
+        .status {
+          display: grid;
+          gap: 8px;
+          font-size: 14px;
+        }
+        .status__row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .muted {
+          color: #9ca3af;
+        }
+        .pill {
+          padding: 2px 8px;
+          border-radius: 999px;
+          font-size: 12px;
+        }
+        .pill--ok {
+          background: rgba(6, 95, 70, 0.3);
+          color: #86efac;
+        }
+        .pill--off {
+          background: rgba(82, 82, 91, 0.5);
+          color: #e5e7eb;
+        }
+        .block {
+          margin-top: 18px;
+        }
+        .block__title {
+          font-weight: 600;
+          color: #d4d4d8;
+          margin-bottom: 6px;
+          font-size: 14px;
+        }
+        .dash {
+          color: #a1a1aa;
+        }
+        .list {
+          list-style: disc;
+          padding-left: 18px;
+          display: grid;
+          gap: 6px;
+        }
+        .line > * + * {
+          margin-left: 10px;
+        }
+        .link {
+          color: #a5b4fc;
+          text-decoration: none;
+        }
+        .link:hover {
+          text-decoration: underline;
+        }
+        .note {
+          margin-top: 6px;
+          font-size: 12px;
+          color: #9ca3af;
+        }
       `}</style>
-
     </main>
+  );
+
+  // [FIXED] Correct loginMethodsAndOrder.primary (remove "wallet")
+  return privyCfg ? (
+    <PrivyProvider
+      appId={privyCfg.appId}
+      config={{
+        loginMethodsAndOrder: {
+          primary: [`privy:${privyCfg.providerAppId}`], // [FIXED] 'email', 'google', 
+        },
+        embeddedWallets: { createOnLogin: 'users-without-wallets' },
+      }}
+    >
+      {content}
+    </PrivyProvider>
+  ) : (
+    content
   );
 }

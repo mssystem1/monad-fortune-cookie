@@ -10,6 +10,7 @@ export default function NavTabs() {
   const items = [
     { href: "/", label: "Main" },
     { href: "/leaderboard", label: "Leaderboard" },
+    { href: '/mgid-leaderboard', label: 'MGID Leaderboard' },
   ];
 
   return (
