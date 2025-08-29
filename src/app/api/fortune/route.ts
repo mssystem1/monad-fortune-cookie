@@ -5,7 +5,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = (process.env.OPENAI_API_KEY ?? '').trim();
   if (!apiKey) {
     return NextResponse.json({ error: 'OPENAI_API_KEY missing on server' }, { status: 500 });
   }
