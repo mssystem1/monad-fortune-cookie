@@ -15,7 +15,10 @@ function sanitizeKey(raw: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const raw = process.env.OPENAI_API_KEY ?? '';
+  const raw =   
+  process.env.OPENAI_API_KEY_MFC ??   // prefer the new var name
+  process.env.OPENAI_API_KEY ??       // fallback
+  '';
   const apiKey = sanitizeKey(raw);
 
   if (!apiKey) {
