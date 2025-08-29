@@ -46,8 +46,12 @@ export async function listMGIDRecords(): Promise<MGIDRecord[]> {
   });
 }
 */
+
 // src/server/mgidStore.ts
-import { kv } from '@vercel/kv';
+import { put, list } from '@vercel/blob';
+import os from 'node:os';
+import path from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 
 export type MgidRow = {
   username: string;
@@ -57,73 +61,95 @@ export type MgidRow = {
   updatedAt: number;
 };
 
-const LB_KEY = 'mgid:leaderboard:score'; // sorted by totalScore (desc)
+type Snapshot = {
+  players: Record<string, MgidRow>; // key = embeddedWallet (lowercased)
+};
 
-const playerKey = (embeddedWallet: string) =>
-  `mgid:player:${embeddedWallet.toLowerCase()}` as const;
+const BLOB_PATH = 'mgid/leaderboard.json';
+const TOKEN = process.env.BLOB_READ_WRITE_TOKEN || ''; // set by Vercel when Blob is connected
+const FALLBACK_FILE = path.join(os.tmpdir(), 'mgid-leaderboard.json');
 
-/** Upsert a player row and update leaderboard ranking (by totalScore). */
+/** Make sure the blob exists; return its URL. */
+async function ensureBlobUrl(): Promise<string | null> {
+  if (!TOKEN) return null; // no Blob configured in this env
+
+  const { blobs } = await list({ prefix: BLOB_PATH, token: TOKEN });
+  if (blobs.length > 0) return blobs[0].url;
+
+  // Create an empty file at a stable path (no random suffix)
+  const init: Snapshot = { players: {} };
+  const res = await put(BLOB_PATH, JSON.stringify(init), {
+    token: TOKEN,
+    access: 'public',
+    contentType: 'application/json',
+    addRandomSuffix: false,
+  });
+  return res.url;
+}
+
+async function readSnapshot(): Promise<Snapshot> {
+  // Local/dev fallback (no Blob token)
+  if (!TOKEN) {
+    try {
+      const raw = await readFile(FALLBACK_FILE, 'utf8');
+      return JSON.parse(raw) as Snapshot;
+    } catch {
+      const init: Snapshot = { players: {} };
+      await writeFile(FALLBACK_FILE, JSON.stringify(init));
+      return init;
+    }
+  }
+
+  const url = await ensureBlobUrl();
+  if (!url) return { players: {} };
+
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) return { players: {} };
+  return (await res.json()) as Snapshot;
+}
+
+async function writeSnapshot(next: Snapshot): Promise<void> {
+  if (!TOKEN) {
+    await writeFile(FALLBACK_FILE, JSON.stringify(next));
+    return;
+  }
+  await put(BLOB_PATH, JSON.stringify(next), {
+    token: TOKEN,
+    access: 'public',
+    contentType: 'application/json',
+    addRandomSuffix: false,
+  });
+}
+
+/** Upsert a player row. */
 export async function savePlayer(row: MgidRow) {
-  const embeddedWallet = row.embeddedWallet.toLowerCase() as `0x${string}`;
-  const data: Record<string, string | number> = {
-    username: row.username,
-    embeddedWallet,
-    totalScore: row.totalScore,
-    totalTransactions: row.totalTransactions,
+  const wallet = row.embeddedWallet.toLowerCase() as `0x${string}`;
+  const snap = await readSnapshot();
+
+  const prev = snap.players[wallet];
+  const merged: MgidRow = {
+    username: row.username || prev?.username || '',
+    embeddedWallet: wallet,
+    totalScore: typeof row.totalScore === 'number' ? row.totalScore : (prev?.totalScore || 0),
+    totalTransactions:
+      typeof row.totalTransactions === 'number' ? row.totalTransactions : (prev?.totalTransactions || 0),
     updatedAt: row.updatedAt || Date.now(),
   };
 
-  // hash per player
-  await kv.hset(playerKey(embeddedWallet), data);
-  // sorted set for leaderboard (score = totalScore)
-  await kv.zadd(LB_KEY, { score: row.totalScore, member: embeddedWallet });
+  snap.players[wallet] = merged;
+  await writeSnapshot(snap);
 }
 
-/** Read a single player row by embedded wallet. */
+/** Read one player row (or null). */
 export async function getPlayer(embeddedWallet: `0x${string}`) {
-  const h = await kv.hgetall<Record<string, any>>(playerKey(embeddedWallet));
-  if (!h) return null;
-  return {
-    username: String(h.username ?? ''),
-    embeddedWallet: (h.embeddedWallet ?? embeddedWallet).toLowerCase() as `0x${string}`,
-    totalScore: Number(h.totalScore ?? 0),
-    totalTransactions: Number(h.totalTransactions ?? 0),
-    updatedAt: Number(h.updatedAt ?? 0),
-  } as MgidRow;
+  const snap = await readSnapshot();
+  return snap.players[embeddedWallet.toLowerCase() as `0x${string}`] || null;
 }
 
-/** Top N players by totalScore (desc). */
+/** Top N by totalScore (desc). */
 export async function topPlayers(limit = 50): Promise<MgidRow[]> {
-  // returns [member, score, member, score, ...]
-  const entries = (await kv.zrange(LB_KEY, 0, limit - 1, {
-    rev: true,
-    withScores: true,
-  })) as Array<string | number>;
-
-  const out: MgidRow[] = [];
-  for (let i = 0; i < entries.length; i += 2) {
-    const embeddedWallet = String(entries[i]) as `0x${string}`;
-    const score = Number(entries[i + 1]);
-
-    const h = await kv.hgetall<Record<string, any>>(playerKey(embeddedWallet));
-    if (h) {
-      out.push({
-        username: String(h.username ?? ''),
-        embeddedWallet: (h.embeddedWallet ?? embeddedWallet).toLowerCase() as `0x${string}`,
-        totalScore: Number(h.totalScore ?? score),
-        totalTransactions: Number(h.totalTransactions ?? 0),
-        updatedAt: Number(h.updatedAt ?? Date.now()),
-      });
-    } else {
-      // fallback if hash missing but rank exists
-      out.push({
-        username: '',
-        embeddedWallet: embeddedWallet.toLowerCase() as `0x${string}`,
-        totalScore: score,
-        totalTransactions: 0,
-        updatedAt: Date.now(),
-      });
-    }
-  }
-  return out;
+  const snap = await readSnapshot();
+  const all = Object.values(snap.players || {});
+  all.sort((a, b) => b.totalScore - a.totalScore || b.updatedAt - a.updatedAt);
+  return all.slice(0, limit);
 }

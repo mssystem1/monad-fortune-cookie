@@ -25,7 +25,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const rows = await topPlayers(20); // or 100
+  const rows = await topPlayers(50); // or 100
   // Keep your current response shape expected by MgidLeaderboardClient
   return Response.json({ rows });
 }

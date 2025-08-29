@@ -46,6 +46,7 @@ export async function GET(req: Request) {
 
   const dbg: any = { steps: [] };
 
+  /*
   // 1) Try ERC721Enumerable path
   try {
     const enumerable = await pc.readContract({
@@ -155,6 +156,7 @@ export async function GET(req: Request) {
   } catch (e: any) {
     dbg.steps.push({ ownerOfScanError: e?.message || String(e) });
   }
+*/
 
   // 3) BlockVision fallback (optional)
   try {

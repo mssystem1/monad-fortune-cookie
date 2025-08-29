@@ -668,12 +668,6 @@ const handleLoginOrLink = async () => {
     ) : null}
 
 
-      {authenticated && crossAppAddr ? (
-        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4, color: 'rgba(233,213,255,0.9)' }}>
-          * scoreAmount counts new mints this session. Leaving the page resets it.
-        </div>
-      ) : null}
-
       {status ? (
         <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(233,213,255,0.9)' }}>
           {status}
