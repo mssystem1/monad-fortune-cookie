@@ -71,20 +71,27 @@ const FALLBACK_FILE = path.join(os.tmpdir(), 'mgid-leaderboard.json');
 
 /** Make sure the blob exists; return its URL. */
 async function ensureBlobUrl(): Promise<string | null> {
-  if (!TOKEN) return null; // no Blob configured in this env
+  if (!TOKEN) return null;
 
   const { blobs } = await list({ prefix: BLOB_PATH, token: TOKEN });
   if (blobs.length > 0) return blobs[0].url;
 
   // Create an empty file at a stable path (no random suffix)
   const init: Snapshot = { players: {} };
-  const res = await put(BLOB_PATH, JSON.stringify(init), {
-    token: TOKEN,
-    access: 'public',
-    contentType: 'application/json',
-    addRandomSuffix: false,
-  });
-  return res.url;
+  try {
+    const res = await put(BLOB_PATH, JSON.stringify(init), {
+      token: TOKEN,
+      access: 'public',
+      contentType: 'application/json',
+      addRandomSuffix: false,
+      allowOverwrite: false, // creation only
+    });
+    return res.url;
+  } catch (e) {
+    // If another request created it in the meantime, just re-list
+    const again = await list({ prefix: BLOB_PATH, token: TOKEN });
+    return again.blobs.length > 0 ? again.blobs[0].url : null;
+  }
 }
 
 async function readSnapshot(): Promise<Snapshot> {
@@ -118,6 +125,7 @@ async function writeSnapshot(next: Snapshot): Promise<void> {
     access: 'public',
     contentType: 'application/json',
     addRandomSuffix: false,
+    allowOverwrite: true, // ✅ key line: we are updating the same path
   });
 }
 
