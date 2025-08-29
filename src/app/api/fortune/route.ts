@@ -13,14 +13,14 @@ function sanitizeKey(raw: string) {
 }
 
 export async function POST(req: NextRequest) {
-  // 👇 never dot-access; use a dynamic name so it can’t be inlined
+  // ✅ Only read the new var name, via a pointer env to avoid build-time inlining
   const KEY_NAME = (process.env['MFC_OPENAI_KEY_NAME'] || 'OPENAI_API_KEY_MFC_NEW').trim();
-  const raw =
-    (process.env[KEY_NAME] as string | undefined) ??
-    (process.env['OPENAI_API_KEY'] as string | undefined) ??
-    '';
+  const raw = (process.env[KEY_NAME] as string | undefined) ?? '';  // ← no fallback
   const apiKey = sanitizeKey(raw);
-  if (!apiKey) return NextResponse.json({ error: 'OPENAI_API_KEY missing' }, { status: 500 });
+
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'OPENAI_API_KEY missing' }), { status: 500 });
+  }
 
   const client = new OpenAI({ apiKey });
 
