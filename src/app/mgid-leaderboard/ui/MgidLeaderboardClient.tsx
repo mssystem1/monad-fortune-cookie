@@ -10,29 +10,60 @@ type Row = {
   updatedAt: number;
 };
 
+type ApiResponse = Row[] | { rows: Row[] }; // UPDATE: accept both shapes
+
 export default function MgidLeaderboardClient() {
   const [rows, setRows] = React.useState<Row[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
+  // UPDATE: extract parse helper so we can reuse on refresh
+  const parseRows = React.useCallback((data: ApiResponse): Row[] => {
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray((data as any).rows)) return (data as any).rows as Row[];
+    return [];
+  }, []);
+
+  const fetchRows = React.useCallback(async () => {
+    setError(null);
+    const r = await fetch('/api/mgid-leaderboard', {
+      cache: 'no-store', // always fresh from Blob-backed API
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = (await r.json()) as ApiResponse;
+    return parseRows(data);
+  }, [parseRows]);
+
   React.useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const r = await fetch('/api/mgid-leaderboard', { cache: 'no-store' });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = (await r.json()) as Row[];
+        const next = await fetchRows();
         if (!alive) return;
-        // already sorted on server; ensure rank numbers here
-        setRows(Array.isArray(data) ? data : []);
+        setRows(next);
       } catch (e: any) {
         if (alive) setError(e?.message || 'Failed to load leaderboard');
       } finally {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
-  }, []);
+    return () => {
+      alive = false;
+    };
+  }, [fetchRows]);
+
+  // (Optional) Light auto-refresh every 30s so players see updates without reload
+  React.useEffect(() => {
+    const id = setInterval(async () => {
+      try {
+        const next = await fetchRows();
+        setRows(next);
+      } catch {
+        // ignore intermittent errors on background refresh
+      }
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [fetchRows]);
 
   if (loading) return <div style={{ opacity: 0.8, color: '#cbd5e1' }}>Loading leaderboard…</div>;
   if (error) return <div style={{ color: '#cbd5e1' }}>{error}</div>;
