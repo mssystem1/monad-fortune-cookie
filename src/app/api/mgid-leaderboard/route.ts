@@ -1,4 +1,6 @@
+
 // src/app/api/mgid-leaderboard/route.ts
+/*
 export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
@@ -14,4 +16,16 @@ export async function GET() {
       { status: 500 }
     );
   }
+}
+*/
+// src/app/api/mgid-leaderboard/route.ts
+import { topPlayers } from '../../../server/mgidStore';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+export async function GET() {
+  const rows = await topPlayers(20); // or 100
+  // Keep your current response shape expected by MgidLeaderboardClient
+  return Response.json({ rows });
 }

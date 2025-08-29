@@ -12,7 +12,7 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { monadTestnet } from '../../../lib/chain';
-import { upsertMGIDRecord } from '../../../server/mgidStore';
+import { savePlayer  } from '../../../server/mgidStore';
 
 const CONTRACT_ADDRESS = '0xceCBFF203C8B6044F52CE23D914A1bfD997541A4' as const;
 
@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
     } catch {
       username = '';
     }
-
+/*
     // Persist for MGID Leaderboard
     await upsertMGIDRecord({
       username: username || `${player.slice(0, 6)}…${player.slice(-4)}`,
@@ -136,6 +136,15 @@ export async function POST(req: NextRequest) {
       totalTransactions: Number(newTxTotal),
       updatedAt: Date.now(),
     });
+*/
+// ... after successful on-chain update:
+await savePlayer({
+      username: username || `${player.slice(0, 6)}…${player.slice(-4)}`,
+      embeddedWallet: player,
+      totalScore: Number(newScoreTotal),
+      totalTransactions: Number(newTxTotal),
+      updatedAt: Date.now(),
+});
 
     return NextResponse.json({
       ok: true,
