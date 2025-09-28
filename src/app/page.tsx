@@ -303,13 +303,13 @@ export default function Page() {
   }, [isConfirmed, receipt, address, qc]);
 
   // ---------- UI ----------
+/*{privyCfg ? <MonadGamesIdBanner /> : null}*/
 
   // [FIXED] Declare content BEFORE using it
   const content = (
     <main className="page">
       {/* Monad Games ID banner */}
-      {privyCfg ? <MonadGamesIdBanner /> : null}
-
+      
       {uiError ? <div className="alert">{uiError}</div> : null}
       {confirmError ? (
         <div className="alert">
