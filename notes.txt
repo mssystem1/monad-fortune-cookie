@@ -1,0 +1,88 @@
+1) analyze full workspace and smart contract code. 
+2) Need to add new feature in project: generate image from text with OpenAI then mint this image. 
+We will use Pinata for storage.
+need to add separate button Generate Image with AI (from topic/hint), separate card to show image (shoulde be able to make it bigger to see), button Mint this Image.
+3) need to add beautiful header - Monad Fortune Cookies.
+4) need to add 2 separate columns in leaderboard: Minted Cookies (), Minted Images ().
+read getTextMinters from smart contract to get addresses for Minted Cookies
+read getImageMinters from smart contract to get addresses for Minted Images.
+then fill these 2 columns with how much Minted Cookies and Minted Images for wallet address, which i get from blockvision endpoints: 
+const BV_HOLDERS  = "https://api.blockvision.org/v2/monad/collection/holders";
+const BV_HOLDINGS = "https://api.blockvision.org/v2/monad/account/nft/holdings";
+
+
+1) leaderboardclientUI does not receive mintedCookies and mintedImages so in leaderboard they 0. Maybe route.ts from leaderboard does not return values.
+ need to fix.
+2) I do not see in the card Generate with AI and Mint - save to pinata, preview card, Simple zoom modal, Mint this Image, mint button.
+3) need to reed mintprice from smart contract and use this value in onMint function: mintWithFortune function and mintWithImage function.
+need to fix. check screen
+4) need to update quiries for Last minted and All minted to this wallet: lastMintQ and holdingsQ - maybe better to check in https://testnet.monadexplorer.com/token/0xBdB861cdfcAE8aC7B5DC95000EE487224BD89E54?tab=Holder or use blockvision endpoints const BV_HOLDERS  = "https://api.blockvision.org/v2/monad/collection/holders";
+const BV_HOLDINGS = "https://api.blockvision.org/v2/monad/account/nft/holdings".
+need to fix.
+cause there are lots of errors. check har file and console logs for error.
+5) fix error: OpenAI error: 400 Unknown parameter: 'response_format' when call generate image with AI.
+6) i think better to remove privy cause i get this error: origins don't match "https://auth.privy.io" "http://localhost:3000"
+show what, where and how modify in project attached.
+
+actually src/app/api/leaderboard/route.ts is very different from mine, so this code will destroy existing function. based on my code show me what, where and how change.
+
+also your src/app/leaderboard/ui/LeaderboardClient.tsx destroys existing logic. based on my code show me what, where and how chnage or add in this file
+
+how /api/holdings/route.ts are tied with page.tsx and Last minted and All minted to this wallet on that?
+
+1) remove purple line and add my logo (uploaded) in header need to update:
+          <div style={{ background: 'linear-gradient(90deg,#111,#1d0b2f 40%,#111)', borderBottom: '1px solid #2a2a2e' }}>
+            <div style={{ maxWidth: 1280, margin: '0 auto', padding: '20px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+                <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: '-0.02em', color: '#fff' }}>
+                  Monad Fortune Cookies
+                </div>
+                <div style={{
+                  height: 2, width: 120,
+                  background: 'linear-gradient(90deg,#7c3aed,#a855f7)',
+                  borderRadius: 999
+                }}/>
+              </div>
+            </div>
+          </div>
+2) need to replace status card on right after {/* Image generation + mint */} card, because now it is invisible
+3) why CSS and styles confused, so input label of Topic / Hint is on preview. need to fix
+4) after pressing generate image with ai got error: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+5) Last minted and All minted to this wallet still does not work on page.tsx. I think holdings are not tied with /api/holdings/route.ts.
+ last minted does not work cause it always shows wrong data and there are errors in console. need to remove existing function  with new:
+need to update quiries for Last minted: lastMintQ - maybe better to check in https://testnet.monadexplorer.com/token/0xBdB861cdfcAE8aC7B5DC95000EE487224BD89E54?tab=Holder or use blockvision endpoints const BV_HOLDERS  = "https://api.blockvision.org/v2/monad/collection/holders";
+const BV_HOLDINGS = "https://api.blockvision.org/v2/monad/account/nft/holdings".
+need to fix.
+6) http://localhost:3000/api/holdings?address=0xA7d827622c4F9c884cA8F751b2060DD767F18683&contract=0xBdB861cdfcAE8aC7B5DC95000EE487224BD89E54 always returns 
+{"tokenIds":[],"note":"bv"}, but there already 5 minted NFTs. need to fix it
+
+1) actually order now is like in 2, but it does not help. check the code and screenshot and provide real fix
+3) fix in 3 did not help, so input label of Topic / Hint in Generate Image with AI is still overlaping preview. Need to fix CSS there. 
+4) logo is not loaded. check screenshot
+5 and 6) - you are wrong cause page.tsx used wrong functions for holdings and last minted. page.tsx does not use src/app/api/holdings/route.ts
+
+1) generate image with ai does not work. get error. check console log
+2) status card should be in centre between Generate Image with AI and Generate Fortune. now it is below. check screenshot and fix.
+3) .col { min-width: 0; display: flex; flex-direction: column; gap: 8px; } did not help, so input label of Topic / Hint in Generate Image with AI is overlapping now
+Generate Image with AI card border
+4) why you do not listen to me dolboeb?  holdings and last minted on page.tsx does not work. stop telling me bullshit. check console logs and har file. provide fixes.
+http://localhost:3000/api/holdings?address=0xA7d827622c4F9c884cA8F751b2060DD767F18683&contract=0xBdB861cdfcAE8aC7B5DC95000EE487224BD89E54 always returns
+{"tokenIds":[],"note":"bv"}. it means it returns nothing.
+Last minted showing wrong non existing NFT ID.
+5) in leaderboard MINTED COOKIES and MINTED IMAGES shows 0, but there are 5 NFTS in total
+
+1) generate image with ai does not work. get error. check console log
+2) input label of Topic / Hint in Generate Image with AI is overlapping now
+Generate Image with AI card border. maybe need to adjust in style jsx
+        .two-col {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 14px;
+        }
+        .two-col .input {
+          display: block;
+          width: 100%;
+          box-sizing: border-box;
+        }
+3) you are wrong again dolboeb. MINTED COOKIES / MINTED IMAGES cannot be read from countHoldingsInCollection.  it is used for different purpose
+for MINTED COOKIES / MINTED IMAGES call smart contract functions function getTextMinters() and function getImageMinters() it returns address, every address - one minted NFT.

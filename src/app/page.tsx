@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import type { Abi } from 'viem';
+import { parseAbi } from 'viem';        
 import { isAddressEqual, parseEventLogs, zeroAddress } from 'viem';
 import {
   useAccount,
@@ -9,6 +10,7 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
   useBalance,
+  useReadContract, 
 } from 'wagmi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -17,7 +19,7 @@ import FortuneABI from '../abi/FortuneCookiesAI.json';
 import { monadTestnet } from '../lib/chain';
 
 // [FIXED] Privy + banner
-import { PrivyProvider } from '@privy-io/react-auth';
+//import { PrivyProvider } from '@privy-io/react-auth';
 import MonadGamesIdBanner from '../components/MonadGamesIdBanner';
 
 const COOKIE_ADDRESS = process.env.NEXT_PUBLIC_COOKIE_ADDRESS as `0x${string}`;
@@ -31,11 +33,17 @@ const xShareUrl = (tokenId: number) => {
   )}`;
 };
 
+const MIN_ABI = parseAbi([
+  'function mintPrice() view returns (uint256)',
+  // If your contract takes different args (e.g., (string imageCid, string fortune)), adjust here and in onMintImage()
+  'function mintWithImage(string fortune, string imageCid) payable returns (uint256)',
+]);
+
 export default function Page() {
   const qc = useQueryClient();
   const { address, chain, isConnected } = useAccount();
   const connected = isConnected && !!address;
-
+/*
   // [FIXED] load Privy config from server-only env via /api/privy-config
   const [privyCfg, setPrivyCfg] = React.useState<{ appId: string; providerAppId: string } | null>(null);
   React.useEffect(() => {
@@ -54,7 +62,7 @@ export default function Page() {
       alive = false;
     };
   }, []);
-
+*/
   // Wallet balance (shown in top bar)
   const { data: balance } = useBalance({
     address,
@@ -73,6 +81,22 @@ export default function Page() {
   const [lastMinted, setLastMinted] = React.useState<number | null>(null);
   const [holdingIds, setHoldingIds] = React.useState<number[]>([]);
   const [scanNote, setScanNote] = React.useState<string | null>(null);
+
+  // image minting state
+  const [imgPrompt, setImgPrompt] = React.useState('');
+  const [imgB64, setImgB64] = React.useState<string | null>(null);
+  const [pinCid, setPinCid] = React.useState<string | null>(null);
+  const [imgBusy, setImgBusy] = React.useState(false);
+  const [pinBusy, setPinBusy] = React.useState(false);
+  const [mintImgBusy, setMintImgBusy] = React.useState(false);
+  const [zoom, setZoom] = React.useState(false);
+
+  const { data: onchainMintPrice } = useReadContract({
+    address: COOKIE_ADDRESS,
+    abi: MIN_ABI,
+    functionName: 'mintPrice',
+    query: { refetchInterval: 30000 }, // 30s
+  });
 
   const prevAddrRef = React.useRef<string | null>(null);
   React.useEffect(() => {
@@ -104,17 +128,19 @@ export default function Page() {
   });
 
   // ---------- Queries ----------
-  const lastMintQ = useQuery({
-    queryKey: ['lastMinted', address],
-    enabled: !!address,
-    staleTime: 60_000,
-    queryFn: async () => {
-      const r = await fetch(`/api/last-minted?address=${address}`, { cache: 'no-store' });
-      if (!r.ok) return null;
-      const j = await r.json();
-      return (j?.tokenId ?? null) as number | null;
-    },
-  });
+const lastMintQ = useQuery({
+  queryKey: ['lastMinted', address, COOKIE_ADDRESS],
+  enabled: !!address && !!COOKIE_ADDRESS,
+  staleTime: 60_000,
+  queryFn: async () => {
+    const r = await fetch(`/api/holdings?address=${address}&contract=${COOKIE_ADDRESS}`, { cache: 'no-store' });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const ids = Array.isArray(j?.tokenIds) ? (j.tokenIds as number[]) : [];
+    if (!ids.length) return null;
+    return Math.max(...ids);
+  },
+});
 
   // Load localStorage fallback on connect (only if server returned null)
   React.useEffect(() => {
@@ -133,6 +159,7 @@ export default function Page() {
       if (s && !Number.isNaN(Number(s))) setLastMinted(Number(s));
     } catch {}
   }, [connected, address, lastMintQ.data]);
+
 
   const holdingsQ = useQuery({
     queryKey: ['holdings', address, COOKIE_ADDRESS],
@@ -174,7 +201,7 @@ export default function Page() {
     const t = window.setInterval(() => {
       qc.invalidateQueries({ queryKey: ['lastMinted', address] });
       qc.invalidateQueries({ queryKey: ['holdings', address, COOKIE_ADDRESS] });
-    }, 60_000);
+    }, 10_000);
     return () => window.clearInterval(t);
   }, [connected, address, qc]);
 
@@ -207,6 +234,86 @@ export default function Page() {
   const { writeContractAsync } = useWriteContract();
   const [txHash, setTxHash] = React.useState<`0x${string}` | undefined>(undefined);
 
+
+  const genImage = async () => {
+    const prompt = (imgPrompt || '').trim();
+    if (!prompt) {
+      setUiError('Enter a topic/hint');
+      // Optional: toast or inline error UI
+      return;
+    }
+    setUiError(null);
+    setImgBusy?.(true);
+    try {
+      const res = await fetch('/api/images', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt, size: '1024x1024' }),
+      });
+
+      // Always parse JSON; surface server error text
+      let data: any = null;
+      try { data = await res.json(); } catch {}
+
+      if (!res.ok) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      const b64: string | undefined = data?.b64;
+      if (!b64) {
+        throw new Error('No image returned');
+      }
+      setImgB64?.(b64);
+      setPinCid?.(null); // reset any previous CID
+    } catch (err: any) {
+      setUiError(String(err?.message || err));
+      throw err; // keep existing catch path behavior if you have one
+    } finally {
+      setImgBusy?.(false);
+    }
+};
+
+const saveToPinata = async () => {
+  setUiError(null);
+  if (!imgB64) { setUiError('No image to save.'); return; }
+  setPinBusy(true);
+  try {
+    const r = await fetch('/api/pinata', { method: 'POST', body: JSON.stringify({ b64: imgB64, filename: 'monad-cookie.png' }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j?.error || 'Failed to save to Pinata');
+    setPinCid(j.cid);
+  } catch (e: any) {
+    setUiError(String(e?.message || e));
+  } finally {
+    setPinBusy(false);
+  }
+};
+
+const onMintImage = async () => {
+  setUiError(null);
+  if (!connected || !address) { setUiError('Connect your wallet first.'); return; }
+  if (!pinCid) { setUiError('Save the image to Pinata first.'); return; }
+
+  setMintImgBusy(true);
+  try {
+    const call: any = {
+      address: COOKIE_ADDRESS,
+      abi: MIN_ABI,
+      functionName: 'mintWithImage',
+      args: [`fortune`, `ipfs://${pinCid}` ],         // <— if your signature differs, adjust
+    };
+    if (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n) {
+      call.value = onchainMintPrice;
+    }
+    const txHash = await writeContractAsync(call);
+    // You already watch confirmation below; we can rely on that or show a toast here
+  } catch (e: any) {
+    setUiError(String(e?.message || e));
+  } finally {
+    setMintImgBusy(false);
+  }
+};
+
+/*
   const onMint = async () => {
     setUiError(null);
     if (!connected || !address) {
@@ -226,6 +333,7 @@ export default function Page() {
         args: [fortune.trim()],
         account: address as `0x${string}`,
         chain: monadTestnet,
+        value: 1000000000000000000
       });
       setTxHash(hash);
     } catch (e: any) {
@@ -234,6 +342,36 @@ export default function Page() {
       setMintBusy(false);
     }
   };
+*/
+  const onMint = async () => {
+    setUiError(null);
+    if (!connected || !address) {
+      setUiError('Connect your wallet first.');
+      return;
+    }
+    if (!fortune?.trim()) {
+      setUiError('Enter or generate a fortune first.');
+      return;
+    }
+    setMintBusy(true);
+    try {
+      const call: any = {
+        address: COOKIE_ADDRESS,
+        abi: FortuneABI as Abi,
+        functionName: 'mintWithFortune',
+        args: [fortune],
+      };
+      if (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n) {
+        call.value = onchainMintPrice;
+      }
+      const hash = await writeContractAsync(call);
+    } catch (e: any) {
+      setUiError(String(e?.message || e));
+    } finally {
+      setMintBusy(false);
+    }
+  };
+
 
   const {
     data: receipt,
@@ -304,6 +442,18 @@ export default function Page() {
 
   // ---------- UI ----------
 /*{privyCfg ? <MonadGamesIdBanner /> : null}*/
+/*
+      <h1 style={{
+        fontSize: 40, fontWeight: 900, letterSpacing: "-0.02em",
+        color: "white", marginBottom: 8
+      }}>
+        Monad Fortune Cookies
+      </h1>
+      <div style={{
+        height: 2, width: 200, background: "linear-gradient(90deg,#7c3aed,#a855f7)",
+        borderRadius: 999, marginBottom: 20
+      }} />
+*/
 
   // [FIXED] Declare content BEFORE using it
   const content = (
@@ -321,12 +471,12 @@ export default function Page() {
 
       <div className="grid">
         {/* LEFT: Mint Card */}
-        <section className="card card--mint">
-          <h2 className="card__title">Mint a Fortune</h2>
+        <section className="card card--fortune">
+          <h2 className="card__title">Generate Fortune</h2>
 
           <div className="two-col">
             <div className="field field--full">
-              <label className="label">Topic / hint</label>
+              <label className="label">Prompt </label> {/*Topic / hint*/}
               <input
                 className="input"
                 placeholder="e.g., gas efficiency, launch day, testnet"
@@ -389,8 +539,86 @@ export default function Page() {
           </button>
         </section>
 
+
+{/* Image generation + mint */}
+<section className="card card--image">
+  <h2 className="card__title">Generate Image with AI</h2>
+
+  <div className="row">
+    <div className="col">
+      <label className="label">Topic / Hint</label>
+      <input
+        className="input"
+        value={imgPrompt}
+        onChange={(e) => setImgPrompt(e.target.value)}
+        placeholder="e.g., neon cyber cookie with Monad logo"
+      />
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button className="btn btn--primary" onClick={genImage} disabled={imgBusy}>
+          {imgBusy ? 'Generating…' : 'Generate Image with AI'}
+        </button>
+        <button className="btn btn--primary" onClick={saveToPinata} disabled={!imgB64 || pinBusy}>
+          {pinBusy ? 'Saving…' : 'Save to Pinata'}
+        </button>
+      </div>
+      {pinCid ? <div className="hint" style={{ marginTop: 8 }}>CID: {pinCid}</div> : null}
+    </div>
+
+    <div className="col" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <label className="label">Preview</label>
+      <div
+        style={{
+          border: '1px solid rgba(63,63,70,0.7)',
+          borderRadius: 12,
+          padding: 8,
+          minHeight: 140,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'rgba(24,24,28,0.5)',
+          cursor: imgB64 ? 'zoom-in' : 'default',
+        }}
+        onClick={() => imgB64 && setZoom(true)}
+        title={imgB64 ? 'Click to zoom' : ''}
+      >
+        {imgB64 ? (
+          <img
+            src={`data:image/png;base64,${imgB64}`}
+            style={{ maxWidth: '100%', maxHeight: 240, borderRadius: 8 }}
+            alt="AI preview"
+          />
+        ) : (
+          <span className="muted">No image yet</span>
+        )}
+      </div>
+
+      <button
+        className="btn btn--accent"
+        onClick={onMintImage}
+        disabled={!pinCid || mintImgBusy || isConfirming || !connected}
+      >
+        {mintImgBusy ? 'Waiting for wallet…' : isConfirming ? 'Confirming…' : 'Mint this Image'}
+      </button>
+    </div>
+  </div>
+
+  {/* Simple zoom modal */}
+  {zoom && imgB64 ? (
+    <div
+      onClick={() => setZoom(false)}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+      }}
+    >
+      <img src={`data:image/png;base64,${imgB64}`} style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 12 }} />
+    </div>
+  ) : null}
+</section>
+
+
         {/* RIGHT: Status Card */}
-        <section className="card">
+        <section className="card card--status">
           <h2 className="card__title">Status</h2>
 
           <div className="status">
@@ -440,7 +668,8 @@ export default function Page() {
               All minted to this wallet <span className="muted">(currently holding)</span>
             </div>
 
-            {!connected ? (
+
+           {!connected ? (
               <div className="dash">—</div>
             ) : holdingsQ.isLoading ? (
               <div className="muted">loading…</div>
@@ -466,7 +695,17 @@ export default function Page() {
           </div>
         </section>
       </div>
+{/*
+          .grid {
+            grid-template-columns: 1fr 1fr;
+          }
 
+         @media (min-width: 560px) {
+          .row {
+            grid-template-columns: 1fr 1fr;
+          }
+        }
+*/}
       {/* --- Card CSS --- */}
       <style jsx>{`
         :global(html),
@@ -481,14 +720,16 @@ export default function Page() {
         }
         .grid {
           display: grid;
-          grid-template-columns: 1fr;
-          gap: 24px;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
         }
         @media (min-width: 900px) {
-          .grid {
-            grid-template-columns: 1fr 1fr;
-          }
+          .card--status { grid-column: 3; order: 3; }
+          .card--image { grid-column: 2; order: 2; }
+          .card--fortune { grid-column: 1; order: 1; }
         }
+ 
+        .col { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
         .card {
           background: rgba(24, 24, 28, 0.82);
           border: 1px solid rgba(63, 63, 70, 0.7);
@@ -509,11 +750,6 @@ export default function Page() {
           grid-template-columns: 1fr;
           gap: 14px;
         }
-        @media (min-width: 560px) {
-          .row {
-            grid-template-columns: 1fr 1fr;
-          }
-        }
         .field {
           margin: 10px 0;
         }
@@ -525,7 +761,7 @@ export default function Page() {
         }
         .input,
         .textarea {
-          width: 100%;
+          width: 90%;
           background: rgba(39, 39, 42, 0.7);
           border: 1px solid rgba(82, 82, 91, 0.6);
           border-radius: 10px;
@@ -648,6 +884,7 @@ export default function Page() {
   );
 
   // [FIXED] Correct loginMethodsAndOrder.primary (remove "wallet")
+  /*
   return privyCfg ? (
     <PrivyProvider
       appId={privyCfg.appId}
@@ -663,4 +900,6 @@ export default function Page() {
   ) : (
     content
   );
+  */
+ return content;
 }

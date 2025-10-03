@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 
-type Row = { rank: number; address?: string | null; mints: number };
+type Row = {
+  rank: number;
+  address?: string | null;
+  mints: number;
+  mintedCookies?: number;
+  mintedImages?: number;
+};
 type Api = {
   top20: Row[];
   you: Row | null;
@@ -61,9 +67,9 @@ export default function LeaderboardClient() {
   const showPinned = !!lower && !inTop;
 
   // If API couldn't compute rank (e.g., no mints yet), still show your wallet card
-  const youRow: Row | null =
-    (data.you as any) ??
-    (lower ? { rank: NaN, address: lower, mints: 0 } : null);
+ const youRow: Row | null =
+  (data.you as any) ??
+  (lower ? { rank: NaN, address: lower, mints: 0, mintedCookies: 0, mintedImages: 0 } : null);
 
   return (
     <div>
@@ -73,7 +79,9 @@ export default function LeaderboardClient() {
         </div>
       ) : null}
 
-      {showPinned && youRow ? <PinnedYouRow you={youRow} hasRank={!!data.you} /> : null}
+      {/*showPinned && youRow ? <PinnedYouRow you={youRow} hasRank={!!data.you} /> : null*/}
+      {showPinned && youRow ? <PinnedYouRow you={youRow} hasRank={Number.isFinite(youRow.rank)} /> : null}
+
       <Table rows={data.top20} highlight={lower || ""} />
       <p style={{ marginTop: 12, color: "#9ca3af" }}>
         {Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(data.updatedAt))}
@@ -97,11 +105,23 @@ function PinnedYouRow({ you, hasRank }: { you: Row; hasRank: boolean }) {
         fontWeight: 800,
       }}
     >
-      {hasRank ? (
+      {/*hasRank ? (
         <>Your rank: #{you.rank} • {short(you.address || "")} • {you.mints} mints</>
       ) : (
         <>Your wallet: {short(you.address || "")} • No mints yet</>
-      )}
+      )*/}
+      {hasRank ? (
+          <>
+            Your rank: #{you.rank} • {short(you.address || "")} • {you.mints} mints
+            {" • Cookies "}{you.mintedCookies ?? 0}
+            {" • Images "}{you.mintedImages ?? 0}
+          </>
+        ) : (
+          <>
+            Your wallet: {short(you.address || "")} • No mints yet
+            {" • Cookies 0 • Images 0"}
+          </>
+        )}
     </div>
   );
 }
@@ -126,6 +146,8 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string }) {
           <col style={{ width: "18%" }} />
           <col style={{ width: "56%" }} />
           <col style={{ width: "26%" }} />
+          <col style={{ width: "26%" }} />
+          <col style={{ width: "26%" }} />
         </colgroup>
 
         <thead>
@@ -139,12 +161,19 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string }) {
             <Th style={{ textAlign: "right", paddingRight: 18, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
               MINTS
             </Th>
+            <th style={{ textAlign: "right", paddingRight: 25, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
+              MINTED COOKIES
+            </th>
+            <th style={{ textAlign: "right", paddingRight: 30, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
+              MINTED IMAGES
+            </th>
           </tr>
         </thead>
 
         <tbody>
           {rows.map((r, i) => {
             const isPlaceholder = !r.address;
+            //const isMintedCookies = !r.mintedCookies;
             const active = !!r.address && r.address.toLowerCase() === highlight;
             const key = (r.address || "placeholder") + "-" + r.rank;
             return (
@@ -169,6 +198,12 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string }) {
                 <Td style={{ textAlign: "right", paddingRight: 18 }}>
                   {isPlaceholder ? <span style={{ color: "#6b7280" }}>—</span> : <span style={pillStyle(r.rank)}>{r.mints}</span>}
                 </Td>
+                <td style={{ textAlign: "right", paddingRight: 25 }}>
+                  {isPlaceholder ? <span style={{ color: "#6b7280" }}>—</span> :  <span style={pillStyle(r.rank)}>{r.mintedCookies ?? 0}</span>}
+                </td>
+                <td style={{ textAlign: "right", paddingRight: 30 }}>
+                  {isPlaceholder ? <span style={{ color: "#6b7280" }}>—</span> :  <span style={pillStyle(r.rank)}>{r.mintedImages ?? 0} </span>}
+                </td>
               </Tr>
             );
           })}

@@ -8,6 +8,12 @@ const RPC =
 
 const pc = createPublicClient({ transport: http(RPC) });
 
+// --- TS type helper to satisfy viem's ReadContractParameters intersections ---
+type _Any = any;
+const _READ_OPTS = {
+  authorizationList: undefined as _Any,
+} as const;
+
 // Minimal ABIs for reads (no logs)
 const ABI_BASE = parseAbi([
   'function balanceOf(address owner) view returns (uint256)',
@@ -47,30 +53,34 @@ export async function GET(req: Request) {
   const dbg: any = { steps: [] };
 
   // 1) Try ERC721Enumerable path
+  
   try {
     const enumerable = await pc.readContract({
+      ..._READ_OPTS,
       address: contract as `0x${string}`,
       abi: ABI_ENUM,
       functionName: 'supportsInterface',
-      args: ['0x780e9d63'], // ERC-721 Enumerable
+      args: ['0x780e9d63'] as const, // ERC-721 Enumerable
     });
     dbg.steps.push({ enumerable });
 
     if (enumerable) {
       const bal = (await pc.readContract({
+        ..._READ_OPTS,
         address: contract as `0x${string}`,
         abi: ABI_ENUM,
         functionName: 'balanceOf',
-        args: [address as `0x${string}`],
+        args: [address as `0x${string}`] as const,
       })) as bigint;
 
       const ids: bigint[] = [];
       for (let i = 0n; i < bal; i++) {
         const id = (await pc.readContract({
+          ..._READ_OPTS,
           address: contract as `0x${string}`,
           abi: ABI_ENUM,
           functionName: 'tokenOfOwnerByIndex',
-          args: [address as `0x${string}`, i],
+          args: [address as `0x${string}`, i] as const,
         })) as bigint;
         ids.push(id);
       }
@@ -97,6 +107,7 @@ export async function GET(req: Request) {
     let top: bigint | null = null;
     try {
       top = (await pc.readContract({
+        ..._READ_OPTS,
         address: contract as `0x${string}`,
         abi: ABI_BASE,
         functionName: 'totalSupply',
@@ -109,10 +120,11 @@ export async function GET(req: Request) {
     let targetCount: bigint | null = null;
     try {
       targetCount = (await pc.readContract({
+        ..._READ_OPTS,
         address: contract as `0x${string}`,
         abi: ABI_BASE,
         functionName: 'balanceOf',
-        args: [address as `0x${string}`],
+        args: [address as `0x${string}`] as const,
       })) as bigint;
       dbg.steps.push({ balanceOf: targetCount.toString() });
     } catch {
@@ -126,10 +138,11 @@ export async function GET(req: Request) {
     for (let id = start; id < endExclusive; id++) {
       try {
         const owner = (await pc.readContract({
+          ..._READ_OPTS,
           address: contract as `0x${string}`,
           abi: ABI_BASE,
           functionName: 'ownerOf',
-          args: [id],
+          args: [id] as const,
         })) as `0x${string}`;
         if (owner.toLowerCase() === address) {
           ids.push(id);
@@ -155,6 +168,7 @@ export async function GET(req: Request) {
   } catch (e: any) {
     dbg.steps.push({ ownerOfScanError: e?.message || String(e) });
   }
+  
 
   // 3) BlockVision fallback (optional)
   try {

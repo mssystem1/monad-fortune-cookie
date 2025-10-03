@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { createPublicClient, http, parseAbi } from "viem";
+import { monadTestnet } from "../../../lib/chain";
 
 /**
  * Leaderboard strategy:
@@ -10,6 +12,32 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const ABI = parseAbi([
+  "function getTextMinters() view returns (address[])",
+  "function getImageMinters() view returns (address[])",
+]);
+
+// Shared viem public client (do NOT create another elsewhere)
+const pc = createPublicClient({
+  chain: monadTestnet,
+  transport: http(
+    process.env.NEXT_PUBLIC_RPC_HTTP ||
+      process.env.NEXT_PUBLIC_MONAD_RPC_URL ||
+      "https://testnet-rpc.monad.xyz"
+  ),
+});
+
+// Count repeated addresses (case-insensitive)
+const tallyLower = (arr?: readonly (string | `0x${string}`)[]) => {
+  const m = new Map<string, number>();
+  if (!arr) return m;
+  for (const a of arr) {
+    const k = String(a).toLowerCase();
+    m.set(k, (m.get(k) ?? 0) + 1);
+  }
+  return m;
+};
 
 // ---- BlockVision endpoints ----
 const BV_HOLDERS  = "https://api.blockvision.org/v2/monad/collection/holders";
@@ -32,6 +60,10 @@ const YOU_TTL_MS = 5_000;
 const youCache = new Map<string, { at: number; count: number }>();
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Lowercase → Set helper (so we can do O(1) membership checks)
+const toLowerSet = (arr?: readonly (string | `0x${string}`)[]) =>
+  new Set((arr ?? []).map(a => String(a).toLowerCase()));
 
 /** Normalize tokenId ("1" vs "0x1" etc.) so we can dedupe per token reliably. */
 function normTokenId(id?: string): string {
@@ -231,17 +263,45 @@ export async function GET(req: Request) {
       }
     }
 
+    // 2.5) Read contract minters for the two leaderboard columns
+let textCounts  = new Map<string, number>();
+let imageCounts = new Map<string, number>();
+try {
+  const [textMintersArr, imageMintersArr] = await Promise.all([
+    (pc as any).readContract({
+      address: contract as `0x${string}`,
+      abi: ABI,
+      functionName: "getTextMinters",
+    } as any) as Promise<`0x${string}`[]>,
+    (pc as any).readContract({
+      address: contract as `0x${string}`,
+      abi: ABI,
+      functionName: "getImageMinters",
+    } as any) as Promise<`0x${string}`[]>,
+  ]);
+  textCounts  = tallyLower(textMintersArr);
+  imageCounts = tallyLower(imageMintersArr);
+} catch {
+  // Keep sets empty if reads fail → columns default to 0
+}
+
     // 3) Build rows + Top-20
     const rows = Array.from(byAddr.entries())
       .map(([address, mints]) => ({ address, mints }))
       .filter((r) => r.mints > 0)
       .sort((a, b) => b.mints - a.mints);
 
-    const actual = rows.slice(0, 20).map((r, i) => ({
-      rank: i + 1,
-      address: r.address,
-      mints: r.mints,
-    }));
+const actual = rows.slice(0, 20).map((r, i) => {
+  const a = (r.address || "").toLowerCase();
+  return {
+    rank: i + 1,
+    address: r.address,
+    mints: r.mints,
+    // ↓ counts, not booleans
+    mintedCookies: textCounts.get(a)  ?? 0,
+    mintedImages:  imageCounts.get(a) ?? 0,
+  };
+});
     const need = Math.max(0, 20 - actual.length);
     const top20 = [
       ...actual,
@@ -249,6 +309,8 @@ export async function GET(req: Request) {
         rank: actual.length + i + 1,
         address: null as string | null,
         mints: 0,
+        mintedCookies: 0,
+        mintedImages: 0,
       })),
     ];
 
@@ -271,6 +333,8 @@ export async function GET(req: Request) {
         rank: i + 1,
         address: r.address,
         mints: r.mints,
+        mintedCookies: 0,
+        mintedImages: 0,
       }));
       const need = Math.max(0, 20 - actual.length);
       const top20 = [
@@ -279,6 +343,8 @@ export async function GET(req: Request) {
           rank: actual.length + i + 1,
           address: null as string | null,
           mints: 0,
+          mintedCookies: 0,
+          mintedImages: 0,
         })),
       ];
       return NextResponse.json(
