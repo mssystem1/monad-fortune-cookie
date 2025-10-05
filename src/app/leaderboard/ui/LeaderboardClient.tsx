@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
+import { useSmartAccount } from "../../../app/SmartAccountProvider";
 
 type Row = {
   rank: number;
@@ -21,12 +22,15 @@ type Api = {
 
 export default function LeaderboardClient() {
   const { address } = useAccount();
+  const { mode, saAddress } = useSmartAccount();
+  const selectedAddress = (mode === 'sa' ? saAddress : address) ?? undefined;
+
   const [data, setData] = useState<Api | null>(null);
   const [loading, setLoading] = useState(true);
 
   function fetchData(fresh = false) {
     const qs = new URLSearchParams();
-    if (address) qs.set("you", address);
+    if (selectedAddress) qs.set("you", selectedAddress);
     if (fresh) qs.set("fresh", "1"); // ⟵ force bypass of server’s 30s cache
     setLoading(true);
     fetch(`/api/leaderboard?${qs.toString()}`, { cache: "no-store" })
@@ -39,7 +43,7 @@ export default function LeaderboardClient() {
   useEffect(() => {
     fetchData(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address]);
+  }, [selectedAddress]);
 
   // Refetch fresh when window gains focus or tab becomes visible (switching tabs)
   useEffect(() => {
@@ -54,7 +58,7 @@ export default function LeaderboardClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const lower = address?.toLowerCase();
+  const lower = selectedAddress?.toLowerCase();
 
   if (loading)
     return <div style={{ opacity: 0.8, color: "#cbd5e1" }}>Loading leaderboard…</div>;

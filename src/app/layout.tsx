@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Providers from "./providers";
 import NavTabs from "../components/NavTabs";
 
+import { SmartAccountProvider } from './SmartAccountProvider';
+
 export const metadata: Metadata = {
   title: "Monad Fortune Cookie",
   description: "AI blessing cookies on Monad Testnet",
@@ -50,7 +52,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
           {/* Page content */}
           <div style={{ maxWidth: 1280, margin: "0 auto", padding: 8 }}>
-            {children}
+            <SmartAccountProvider>
+              {children}
+            </SmartAccountProvider>
           </div>
         </Providers>
       </body>

@@ -8,7 +8,7 @@ import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { monadTestnet } from '../lib/chain';
-import { wagmiConfig } from '../lib/wagmi';
+import { wagmiConfig  } from '../lib/wagmi';
 
 export default function Providers({ children }: { children: ReactNode }) {
   // One QueryClient for the app lifetime
@@ -30,7 +30,7 @@ export default function Providers({ children }: { children: ReactNode }) {
   );
 
   return (
-    <WagmiProvider config={wagmiConfig}>
+    <WagmiProvider config={wagmiConfig }>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider theme={darkTheme()} initialChain={monadTestnet}>
           {children}

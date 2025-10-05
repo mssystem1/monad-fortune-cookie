@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import type { Abi } from 'viem';
-import { parseAbi } from 'viem';        
+import { parseAbi, parseEther, encodeFunctionData, type Address  } from 'viem';        
 import { isAddressEqual, parseEventLogs, zeroAddress } from 'viem';
 import {
   useAccount,
@@ -11,8 +11,15 @@ import {
   useWriteContract,
   useBalance,
   useReadContract, 
+  useWalletClient 
 } from 'wagmi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { SaStatusCard } from '../../src/components/SaStatusCard';
+import { useSmartAccount } from '../app/SmartAccountProvider';
+import { bundlerClient } from '../../src/lib/aa/clients';
+
+// + ADD (keep your other imports intact)
+import { buildSmartAccount } from '../../src/lib/aa/smartAccount';
 
 // ⬇️ RELATIVE imports (keep your own)
 import FortuneABI from '../abi/FortuneCookiesAI.json';
@@ -39,9 +46,29 @@ const MIN_ABI = parseAbi([
   'function mintWithImage(string fortune, string imageCid) payable returns (uint256)',
 ]);
 
+// Minimal AA sender to avoid TS2589 noise
+const sendSaUo = async ({
+  sa,
+  to,
+  data,
+  value,
+}: {
+  sa: any; // SmartAccount at runtime
+  to: Address;
+  data: `0x${string}`;
+  value: bigint;
+}) => {
+  // cast bundlerClient to any locally to avoid deep type expansion
+  return (bundlerClient as any).sendUserOperation({
+    account: sa as any,
+    calls: [{ to, data, value }] as any,
+  });
+};
+
 export default function Page() {
   const qc = useQueryClient();
   const { address, chain, isConnected } = useAccount();
+  const { data: walletClient } = useWalletClient();
   const connected = isConnected && !!address;
 /*
   // [FIXED] load Privy config from server-only env via /api/privy-config
@@ -95,7 +122,7 @@ export default function Page() {
     address: COOKIE_ADDRESS,
     abi: MIN_ABI,
     functionName: 'mintPrice',
-    query: { refetchInterval: 30000 }, // 30s
+    query: { refetchInterval: 120000 }, // 120s
   });
 
   const prevAddrRef = React.useRef<string | null>(null);
@@ -127,13 +154,19 @@ export default function Page() {
     },
   });
 
+  // + ADD (don’t remove your current address logic)
+const { mode, eoaAddress, saAddress, saReady, saBalance } = useSmartAccount();
+
+// The wallet address that should drive reads (holdings)
+const selectedAddress: Address | undefined = mode === 'sa' ? saAddress : eoaAddress;
+
   // ---------- Queries ----------
 const lastMintQ = useQuery({
-  queryKey: ['lastMinted', address, COOKIE_ADDRESS],
-  enabled: !!address && !!COOKIE_ADDRESS,
+  queryKey: ['lastMinted', selectedAddress, COOKIE_ADDRESS],
+  enabled: !!selectedAddress && !!COOKIE_ADDRESS,
   staleTime: 60_000,
   queryFn: async () => {
-    const r = await fetch(`/api/holdings?address=${address}&contract=${COOKIE_ADDRESS}`, { cache: 'no-store' });
+    const r = await fetch(`/api/holdings?address=${selectedAddress}&contract=${COOKIE_ADDRESS}`, { cache: 'no-store' });
     if (!r.ok) return null;
     const j = await r.json();
     const ids = Array.isArray(j?.tokenIds) ? (j.tokenIds as number[]) : [];
@@ -149,25 +182,25 @@ const lastMintQ = useQuery({
     if (serverVal != null) {
       setLastMinted(serverVal);
       try {
-        localStorage.setItem(`fc:lastMinted:${address}`, String(serverVal));
+        localStorage.setItem(`fc:lastMinted:${selectedAddress}`, String(serverVal));
       } catch {}
       return;
     }
     // server null/404 → try localStorage
     try {
-      const s = localStorage.getItem(`fc:lastMinted:${address}`);
+      const s = localStorage.getItem(`fc:lastMinted:${selectedAddress}`);
       if (s && !Number.isNaN(Number(s))) setLastMinted(Number(s));
     } catch {}
-  }, [connected, address, lastMintQ.data]);
+  }, [connected, selectedAddress, lastMintQ.data]);
 
 
   const holdingsQ = useQuery({
-    queryKey: ['holdings', address, COOKIE_ADDRESS],
-    enabled: !!address && !!COOKIE_ADDRESS,
+    queryKey: ['holdings', selectedAddress, COOKIE_ADDRESS],
+    enabled: !!selectedAddress && !!COOKIE_ADDRESS,
     staleTime: 60_000,
     queryFn: async () => {
       const r = await fetch(
-        `/api/holdings?address=${address}&contract=${COOKIE_ADDRESS}`,
+        `/api/holdings?address=${selectedAddress}&contract=${COOKIE_ADDRESS}`,
         { cache: 'no-store' },
       );
       if (!r.ok) return [] as number[];
@@ -186,10 +219,10 @@ const lastMintQ = useQuery({
       const mx = holdingsQ.data[holdingsQ.data.length - 1];
       setLastMinted(mx);
       try {
-        localStorage.setItem(`fc:lastMinted:${address}`, String(mx));
+        localStorage.setItem(`fc:lastMinted:${selectedAddress}`, String(mx));
       } catch {}
     }
-  }, [connected, address, lastMintQ.isLoading, lastMintQ.data, holdingsQ.data]);
+  }, [connected, selectedAddress, lastMintQ.isLoading, lastMintQ.data, holdingsQ.data]);
 
   React.useEffect(() => {
     setHoldingIds(holdingsQ.data ?? []);
@@ -199,11 +232,11 @@ const lastMintQ = useQuery({
   React.useEffect(() => {
     if (!connected) return;
     const t = window.setInterval(() => {
-      qc.invalidateQueries({ queryKey: ['lastMinted', address] });
-      qc.invalidateQueries({ queryKey: ['holdings', address, COOKIE_ADDRESS] });
-    }, 10_000);
+      qc.invalidateQueries({ queryKey: ['lastMinted', selectedAddress] });
+      qc.invalidateQueries({ queryKey: ['holdings', selectedAddress, COOKIE_ADDRESS] });
+    }, 60_000);
     return () => window.clearInterval(t);
-  }, [connected, address, qc]);
+  }, [connected, selectedAddress, qc]);
 
   // ---------- Generate with AI ----------
   const onGenerate = async () => {
@@ -293,25 +326,68 @@ const onMintImage = async () => {
   if (!connected || !address) { setUiError('Connect your wallet first.'); return; }
   if (!pinCid) { setUiError('Save the image to Pinata first.'); return; }
 
+  // --- Smart Account path (ONLY when Smart is ON) ---
+  if (mode === 'sa' && bundlerClient && saReady) {
+    // guard: SA balance must be >= 1.1 MON
+    if (parseEther(String(saBalance ?? '0')) < parseEther('1.1')) {
+      setUiError('need to top up Smart account > 1.1 MON');
+      return;
+    }
+    setMintImgBusy(true);
+    try {
+      // same signer as your app uses
+      // @ts-ignore – relax generics for wagmi helper
+      //const walletClient = await (await import('wagmi')).getWalletClient({ chainId: monadTestnet.id });
+      if (!walletClient) throw new Error('No wallet client');
+
+      const sa = await buildSmartAccount(walletClient as any);
+
+      // EXACT same ABI/function/args as your EOA path:
+      const data = encodeFunctionData({
+        abi: MIN_ABI,
+        functionName: 'mintWithImage',
+        args: [`fortune`, `ipfs://${pinCid}`],
+      });
+
+      const value = (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n)
+        ? onchainMintPrice : 0n;
+
+    await sendSaUo({
+      sa,
+      to: COOKIE_ADDRESS as Address,
+      data: data as `0x${string}`,
+      value,
+    });
+    } catch (e: any) {
+      setUiError(String(e?.message || e));
+    } finally {
+      setMintImgBusy(false);
+    }
+    return; // do not run EOA path
+  }
+  // --- end Smart Account path ---
+
+  // (keep your EOA path exactly as-is below)
   setMintImgBusy(true);
   try {
     const call: any = {
       address: COOKIE_ADDRESS,
       abi: MIN_ABI,
       functionName: 'mintWithImage',
-      args: [`fortune`, `ipfs://${pinCid}` ],         // <— if your signature differs, adjust
+      args: [`fortune`, `ipfs://${pinCid}`],
     };
     if (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n) {
       call.value = onchainMintPrice;
     }
-    const txHash = await writeContractAsync(call);
-    // You already watch confirmation below; we can rely on that or show a toast here
+    const hash = await writeContractAsync(call);
+    setTxHash?.(hash); // keep your receipt watcher flow
   } catch (e: any) {
     setUiError(String(e?.message || e));
   } finally {
     setMintImgBusy(false);
   }
 };
+
 
 /*
   const onMint = async () => {
@@ -343,17 +419,60 @@ const onMintImage = async () => {
     }
   };
 */
-  const onMint = async () => {
-    setUiError(null);
-    if (!connected || !address) {
-      setUiError('Connect your wallet first.');
-      return;
-    }
-    if (!fortune?.trim()) {
-      setUiError('Enter or generate a fortune first.');
+
+const onMint = async () => {
+  setUiError(null);
+  if (!connected || !address) {
+    setUiError('Connect your wallet first.');
+    return;
+  }
+  if (!fortune?.trim()) {
+    setUiError('Enter or generate a fortune first.');
+    return;
+  }
+
+  // --- Smart Account path (ONLY when Smart is ON) ---
+  if (mode === 'sa' && bundlerClient && saReady) {
+    // guard: SA balance must be >= 1.1 MON
+    if (parseEther(String(saBalance ?? '0')) < parseEther('1.1')) {
+      setUiError('need to top up Smart account > 1.1 MON');
       return;
     }
     setMintBusy(true);
+    try {
+      // @ts-ignore
+      //const walletClient = await (await import('wagmi')).getWalletClient({ chainId: monadTestnet.id });
+      if (!walletClient) throw new Error('No wallet client');
+
+      const sa = await buildSmartAccount(walletClient as any);
+
+      // EXACT same ABI/function/args/value as your EOA path:
+      const data = encodeFunctionData({
+        abi: FortuneABI as Abi,
+        functionName: 'mintWithFortune',
+        args: [fortune.trim()],
+      });
+
+      const value = (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n)
+        ? onchainMintPrice : 0n;
+
+    await sendSaUo({
+      sa,
+      to: COOKIE_ADDRESS as Address,
+      data: data as `0x${string}`,
+      value,
+    });
+    } catch (e: any) {
+      setUiError(e?.shortMessage || e?.message || 'Mint failed');
+    } finally {
+      setMintBusy(false);
+    }
+    return; // do not run EOA path
+  }
+  // --- end Smart Account path ---
+
+  // (keep your EOA path exactly as-is below)
+  setMintBusy(true);
     try {
       const call: any = {
         address: COOKIE_ADDRESS,
@@ -370,7 +489,7 @@ const onMintImage = async () => {
     } finally {
       setMintBusy(false);
     }
-  };
+};
 
 
   const {
@@ -639,6 +758,8 @@ const onMintImage = async () => {
               </span>
             </div>
           </div>
+
+          <SaStatusCard />
 
           {/* Last minted */}
           <div className="block">
