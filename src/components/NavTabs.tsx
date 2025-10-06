@@ -11,7 +11,6 @@ export default function NavTabs() {
     { href: "/", label: "Main" },
     { href: "/SmartAccount", label: "Smart Account" },
     { href: "/leaderboard", label: "Leaderboard" },
-    { href: "/SmartAccount", label: "Smart Account" },   // ← new tab
  //   { href: '/mgid-leaderboard', label: 'MGID Leaderboard' },
   ];
 
