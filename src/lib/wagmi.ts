@@ -1,4 +1,37 @@
 // src/lib/wagmi.ts
+/*
+'use client';
+import { createConfig, http } from 'wagmi';
+import { injected, metaMask, coinbaseWallet, walletConnect } from 'wagmi/connectors';
+import { monadTestnet } from '../lib/chain'; // keep your existing chain import/path
+
+// transport for your chain
+const transport = http(process.env.NEXT_PUBLIC_MONAD_RPC_URL!);
+
+const connectors = [
+  injected({ shimDisconnect: true }),    // ✅ keep here
+  metaMask(),                            // ✅ remove shimDisconnect
+  coinbaseWallet({ appName: 'Monad Fortune Cookie' }),
+    // ✅ WalletConnect (restores dozens of wallets + MetaMask Mobile)
+  walletConnect({
+    projectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID!, // <- REQUIRED
+    showQrModal: true,                                 // RainbowKit will use the WC modal
+  }),
+];
+
+// Create wagmi config without WalletConnect
+export const config = createConfig({
+  chains: [monadTestnet],
+  connectors,
+  transports: {
+    [monadTestnet.id]: transport,
+  },
+  ssr: true, // keep if you render on the server
+});
+
+export type AppConfig = typeof config;
+*/
+
 'use client';
 
 import { http } from 'wagmi';

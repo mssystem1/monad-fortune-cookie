@@ -223,8 +223,12 @@ async function fetchYouHoldingsCount(
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const YOU = (url.searchParams.get("you") || "").toLowerCase();
+    //const YOU = (url.searchParams.get("you") || "").toLowerCase();
     const forceFresh = url.searchParams.get("fresh") === "1";
+
+    const YOU_RAW = (url.searchParams.get('you') || '').toLowerCase();
+    const YOU_LIST = YOU_RAW ? YOU_RAW.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const YOU = YOU_LIST[0] || ''; // keep the first for backward-compatibility
 
     const contract = (process.env.NEXT_PUBLIC_COOKIE_ADDRESS || "").toLowerCase();
     const apiKey = process.env.BLOCKVISION_API_KEY;
@@ -315,10 +319,35 @@ const actual = rows.slice(0, 20).map((r, i) => {
     ];
 
     // 4) you row
+    /*
     let you: { rank: number; address: string; mints: number } | null = null;
     if (YOU) {
       const idx = rows.findIndex((r) => r.address === YOU);
       if (idx >= 0) you = { rank: idx + 1, address: YOU, mints: rows[idx].mints };
+    }
+    */
+    let you: { rank: number; address: string | string[]; mints: number; mintedCookies: number; mintedImages: number } | null = null;
+
+    if (YOU_LIST.length) {
+      // mints: sum across rows (case-insensitive)
+      const rowMap = new Map(rows.map(r => [r.address.toLowerCase(), r.mints]));
+      const sum = (map: Map<string, number>) =>
+        YOU_LIST.reduce((acc, a) => acc + (map.get(a) ?? 0), 0);
+      const mintedCookies = sum(textCounts);
+      const mintedImages  = sum(imageCounts);
+      const mints         = YOU_LIST.reduce((acc, a) => acc + (rowMap.get(a) ?? 0), 0);
+
+      // rank is ambiguous for multi; set to NaN or min rank if you prefer
+      you = { rank: Number.NaN, address: YOU_LIST, mints, mintedCookies, mintedImages };
+    } else if (YOU) {
+      const idx = rows.findIndex(r => r.address.toLowerCase() === YOU);
+      you = {
+        rank: idx >= 0 ? idx + 1 : Number.NaN,
+        address: YOU,
+        mints: rows[idx]?.mints ?? 0,
+        mintedCookies: textCounts.get(YOU) ?? 0,
+        mintedImages: imageCounts.get(YOU) ?? 0,
+      };
     }
 
     return NextResponse.json(
