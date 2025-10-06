@@ -14,14 +14,20 @@ import {
   useWalletClient,
 } from 'wagmi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { SaStatusCard } from '../../../src/components/SaStatusCard';
+import { useSmartAccount } from '../../app/SmartAccountProvider';
+import { bundlerClient } from '../../../src/lib/aa/clients';
+
+// + ADD (keep your other imports intact)
+import { buildSmartAccount } from '../../../src/lib/aa/smartAccount';
 
 // ⬇️ RELATIVE imports (keep your own)
-import FortuneABI from '../abi/FortuneCookiesAI.json';
-import { monadTestnet } from '../lib/chain';
+import FortuneABI from '../../abi/FortuneCookiesAI.json';
+import { monadTestnet } from '../../lib/chain';
 
 // [FIXED] Privy + banner
 //import { PrivyProvider } from '@privy-io/react-auth';
-import MonadGamesIdBanner from '../components/MonadGamesIdBanner';
+import MonadGamesIdBanner from '../../components/MonadGamesIdBanner';
 
 const COOKIE_ADDRESS = process.env.NEXT_PUBLIC_COOKIE_ADDRESS as `0x${string}`;
 
@@ -39,6 +45,25 @@ const MIN_ABI = parseAbi([
   // If your contract takes different args (e.g., (string imageCid, string fortune)), adjust here and in onMintImage()
   'function mintWithImage(string fortune, string imageCid) payable returns (uint256)',
 ]);
+
+// Minimal AA sender to avoid TS2589 noise
+const sendSaUo = async ({
+  sa,
+  to,
+  data,
+  value,
+}: {
+  sa: any; // SmartAccount at runtime
+  to: Address;
+  data: `0x${string}`;
+  value: bigint;
+}) => {
+  // cast bundlerClient to any locally to avoid deep type expansion
+  return (bundlerClient as any).sendUserOperation({
+    account: sa as any,
+    calls: [{ to, data, value }] as any,
+  });
+};
 
 export default function Page() {
   const qc = useQueryClient();
@@ -129,13 +154,19 @@ export default function Page() {
     },
   });
 
+    // + ADD (don’t remove your current address logic)
+const { mode, eoaAddress, saAddress, saReady, saBalance } = useSmartAccount();
+
+// The wallet address that should drive reads (holdings)
+//const selectedAddress: Address | undefined = mode === 'sa' ? saAddress : eoaAddress;
+
   // ---------- Queries ----------
 const lastMintQ = useQuery({
-  queryKey: ['lastMinted', address, COOKIE_ADDRESS],
-  enabled: !!address && !!COOKIE_ADDRESS,
+  queryKey: ['lastMinted', saAddress, COOKIE_ADDRESS],
+  enabled: !!saAddress && !!COOKIE_ADDRESS,
   staleTime: 60_000,
   queryFn: async () => {
-    const r = await fetch(`/api/holdings?address=${address}&contract=${COOKIE_ADDRESS}`, { cache: 'no-store' });
+    const r = await fetch(`/api/holdings?address=${saAddress}&contract=${COOKIE_ADDRESS}`, { cache: 'no-store' });
     if (!r.ok) return null;
     const j = await r.json();
     const ids = Array.isArray(j?.tokenIds) ? (j.tokenIds as number[]) : [];
@@ -151,25 +182,25 @@ const lastMintQ = useQuery({
     if (serverVal != null) {
       setLastMinted(serverVal);
       try {
-        localStorage.setItem(`fc:lastMinted:${address}`, String(serverVal));
+        localStorage.setItem(`fc:lastMinted:${saAddress}`, String(serverVal));
       } catch {}
       return;
     }
     // server null/404 → try localStorage
     try {
-      const s = localStorage.getItem(`fc:lastMinted:${address}`);
+      const s = localStorage.getItem(`fc:lastMinted:${saAddress}`);
       if (s && !Number.isNaN(Number(s))) setLastMinted(Number(s));
     } catch {}
-  }, [connected, address, lastMintQ.data]);
+  }, [connected, saAddress, lastMintQ.data]);
 
 
   const holdingsQ = useQuery({
-    queryKey: ['holdings', address, COOKIE_ADDRESS],
-    enabled: !!address && !!COOKIE_ADDRESS,
+    queryKey: ['holdings', saAddress, COOKIE_ADDRESS],
+    enabled: !!saAddress && !!COOKIE_ADDRESS,
     staleTime: 60_000,
     queryFn: async () => {
       const r = await fetch(
-        `/api/holdings?address=${address}&contract=${COOKIE_ADDRESS}`,
+        `/api/holdings?address=${saAddress}&contract=${COOKIE_ADDRESS}`,
         { cache: 'no-store' },
       );
       if (!r.ok) return [] as number[];
@@ -188,10 +219,10 @@ const lastMintQ = useQuery({
       const mx = holdingsQ.data[holdingsQ.data.length - 1];
       setLastMinted(mx);
       try {
-        localStorage.setItem(`fc:lastMinted:${address}`, String(mx));
+        localStorage.setItem(`fc:lastMinted:${saAddress}`, String(mx));
       } catch {}
     }
-  }, [connected, address, lastMintQ.isLoading, lastMintQ.data, holdingsQ.data]);
+  }, [connected, saAddress, lastMintQ.isLoading, lastMintQ.data, holdingsQ.data]);
 
   React.useEffect(() => {
     setHoldingIds(holdingsQ.data ?? []);
@@ -201,11 +232,11 @@ const lastMintQ = useQuery({
   React.useEffect(() => {
     if (!connected) return;
     const t = window.setInterval(() => {
-      qc.invalidateQueries({ queryKey: ['lastMinted', address] });
-      qc.invalidateQueries({ queryKey: ['holdings', address, COOKIE_ADDRESS] });
+      qc.invalidateQueries({ queryKey: ['lastMinted', saAddress] });
+      qc.invalidateQueries({ queryKey: ['holdings', saAddress, COOKIE_ADDRESS] });
     }, 10_000);
     return () => window.clearInterval(t);
-  }, [connected, address, qc]);
+  }, [connected, saAddress, qc]);
 
   // ---------- Generate with AI ----------
   const onGenerate = async () => {
@@ -290,7 +321,7 @@ const saveToPinata = async () => {
   }
 };
 
-
+/*
 const onMintImage = async () => {
   setUiError(null);
   if (!connected || !address) { setUiError('Connect your wallet first.'); return; }
@@ -315,7 +346,76 @@ const onMintImage = async () => {
     setMintImgBusy(false);
   }
 };
+*/
 
+const onMintImage = async () => {
+  setUiError(null);
+  if (!connected || !address) { setUiError('Connect your wallet first.'); return; }
+  if (!pinCid) { setUiError('Save the image to Pinata first.'); return; }
+
+  // --- Smart Account path (ONLY when Smart is ON) ---
+  if (mode === 'sa' && bundlerClient && saReady) {
+    // guard: SA balance must be >= 1.1 MON
+    if (parseEther(String(saBalance ?? '0')) < parseEther('1.1')) {
+      setUiError('need to top up Smart account > 1.1 MON');
+      return;
+    }
+    setMintImgBusy(true);
+    try {
+      // same signer as your app uses
+      // @ts-ignore – relax generics for wagmi helper
+      //const walletClient = await (await import('wagmi')).getWalletClient({ chainId: monadTestnet.id });
+      if (!walletClient) throw new Error('No wallet client');
+
+      const sa = await buildSmartAccount(walletClient as any);
+
+      // EXACT same ABI/function/args as your EOA path:
+      const data = encodeFunctionData({
+        abi: MIN_ABI,
+        functionName: 'mintWithImage',
+        args: [`fortune`, `ipfs://${pinCid}`],
+      });
+
+      const value = (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n)
+        ? onchainMintPrice : 0n;
+
+    await sendSaUo({
+      sa,
+      to: COOKIE_ADDRESS as Address,
+      data: data as `0x${string}`,
+      value,
+    });
+    } catch (e: any) {
+      setUiError(String(e?.message || e));
+    } finally {
+      setMintImgBusy(false);
+    }
+    return; // do not run EOA path
+  }
+  // --- end Smart Account path ---
+
+/*
+  // (keep your EOA path exactly as-is below)
+  setMintImgBusy(true);
+  try {
+    const call: any = {
+      address: COOKIE_ADDRESS,
+      abi: MIN_ABI,
+      functionName: 'mintWithImage',
+      args: [`fortune`, `ipfs://${pinCid}`],
+    };
+    if (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n) {
+      call.value = onchainMintPrice;
+    }
+    const hash = await writeContractAsync(call);
+    setTxHash?.(hash); // keep your receipt watcher flow
+  } catch (e: any) {
+    setUiError(String(e?.message || e));
+  } finally {
+    setMintImgBusy(false);
+  }
+  */
+};
 
 /*
   const onMint = async () => {
@@ -347,7 +447,7 @@ const onMintImage = async () => {
     }
   };
 */
-
+/*
   const onMint = async () => {
     setUiError(null);
     if (!connected || !address) {
@@ -376,6 +476,79 @@ const onMintImage = async () => {
       setMintBusy(false);
     }
   };
+*/
+const onMint = async () => {
+  setUiError(null);
+  if (!connected || !address) {
+    setUiError('Connect your wallet first.');
+    return;
+  }
+  if (!fortune?.trim()) {
+    setUiError('Enter or generate a fortune first.');
+    return;
+  }
+
+  // --- Smart Account path (ONLY when Smart is ON) ---
+  if (mode === 'sa' && bundlerClient && saReady) {
+    // guard: SA balance must be >= 1.1 MON
+    if (parseEther(String(saBalance ?? '0')) < parseEther('1.1')) {
+      setUiError('need to top up Smart account > 1.1 MON');
+      return;
+    }
+    setMintBusy(true);
+    try {
+      // @ts-ignore
+      //const walletClient = await (await import('wagmi')).getWalletClient({ chainId: monadTestnet.id });
+      if (!walletClient) throw new Error('No wallet client');
+
+      const sa = await buildSmartAccount(walletClient as any);
+
+      // EXACT same ABI/function/args/value as your EOA path:
+      const data = encodeFunctionData({
+        abi: FortuneABI as Abi,
+        functionName: 'mintWithFortune',
+        args: [fortune.trim()],
+      });
+
+      const value = (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n)
+        ? onchainMintPrice : 0n;
+
+    await sendSaUo({
+      sa,
+      to: COOKIE_ADDRESS as Address,
+      data: data as `0x${string}`,
+      value,
+    });
+    } catch (e: any) {
+      setUiError(e?.shortMessage || e?.message || 'Mint failed');
+    } finally {
+      setMintBusy(false);
+    }
+    return; // do not run EOA path
+  }
+  // --- end Smart Account path ---
+
+  /*
+  // (keep your EOA path exactly as-is below)
+  setMintBusy(true);
+    try {
+      const call: any = {
+        address: COOKIE_ADDRESS,
+        abi: FortuneABI as Abi,
+        functionName: 'mintWithFortune',
+        args: [fortune],
+      };
+      if (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n) {
+        call.value = onchainMintPrice;
+      }
+      const hash = await writeContractAsync(call);
+    } catch (e: any) {
+      setUiError(String(e?.message || e));
+    } finally {
+      setMintBusy(false);
+    }
+      */
+};
 
   const {
     data: receipt,
@@ -399,14 +572,14 @@ const onMintImage = async () => {
       for (const ev of decoded) {
         if (!ev || (ev as any).eventName == null) continue;
 
-        const evAddr = (ev as any).address as `0x${string}` | undefined;
+        const evAddr = (ev as any).saAddress as `0x${string}` | undefined;
         if (evAddr && evAddr.toLowerCase() !== COOKIE_ADDRESS.toLowerCase()) continue;
 
         if (ev.eventName === 'CookieMinted') {
           const args: any = ev.args;
           const tid = Number(args?.tokenId ?? args?.tokenID ?? args?.id);
           const minter = args?.minter as `0x${string}` | undefined;
-          if (!Number.isNaN(tid) && (!minter || isAddressEqual(minter, address as `0x${string}`))) {
+          if (!Number.isNaN(tid) && (!minter || isAddressEqual(minter, saAddress as `0x${string}`))) {
             foundTokenId = tid;
             break;
           }
@@ -421,7 +594,7 @@ const onMintImage = async () => {
             from &&
             to &&
             isAddressEqual(from, zeroAddress) &&
-            isAddressEqual(to, address as `0x${string}`) &&
+            isAddressEqual(to, saAddress as `0x${string}`) &&
             !Number.isNaN(tid)
           ) {
             foundTokenId = tid;
@@ -436,13 +609,13 @@ const onMintImage = async () => {
     if (foundTokenId != null) {
       setLastMinted(foundTokenId);
       try {
-        localStorage.setItem(`fc:lastMinted:${address}`, String(foundTokenId));
+        localStorage.setItem(`fc:lastMinted:${saAddress}`, String(foundTokenId));
       } catch {}
     }
 
-    qc.invalidateQueries({ queryKey: ['lastMinted', address] });
-    qc.invalidateQueries({ queryKey: ['holdings', address, COOKIE_ADDRESS] });
-  }, [isConfirmed, receipt, address, qc]);
+    qc.invalidateQueries({ queryKey: ['lastMinted', saAddress] });
+    qc.invalidateQueries({ queryKey: ['holdings', saAddress, COOKIE_ADDRESS] });
+  }, [isConfirmed, receipt, saAddress, qc]);
 
   // ---------- UI ----------
 /*{privyCfg ? <MonadGamesIdBanner /> : null}*/
@@ -643,6 +816,8 @@ const onMintImage = async () => {
               </span>
             </div>
           </div>
+
+          <SaStatusCard />
 
           {/* Last minted */}
           <div className="block">

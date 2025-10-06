@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
+import { useSmartAccount } from "../../../app/SmartAccountProvider";
 
 type Row = {
   rank: number;
@@ -21,13 +22,23 @@ type Api = {
 
 export default function LeaderboardClient() {
   const { address } = useAccount();
+  const { saAddress } = useSmartAccount();
   const [data, setData] = useState<Api | null>(null);
   const [loading, setLoading] = useState(true);
+ // const { mode, saAddress } = useSmartAccount();
+ //  const selectedAddress = (mode === 'sa' ? saAddress : address) ?? undefined;
+
+ const eoaLower = address?.toLowerCase();
+const saLower  = saAddress?.toLowerCase();
+const highlights = Array.from(new Set([eoaLower, saLower].filter(Boolean) as string[]));
 
   function fetchData(fresh = false) {
     const qs = new URLSearchParams();
-    if (address) qs.set("you", address);
-    if (fresh) qs.set("fresh", "1"); // ⟵ force bypass of server’s 30s cache
+    //if (address) qs.set("you", address);
+    //if (fresh) qs.set("fresh", "1"); // ⟵ force bypass of server’s 30s cache
+    const youList = [address, saAddress].filter(Boolean) as string[];
+    if (youList.length) qs.set("you", youList.join(","));
+    if (fresh) qs.set("fresh", "1");
     setLoading(true);
     fetch(`/api/leaderboard?${qs.toString()}`, { cache: "no-store" })
       .then((r) => r.json())
@@ -39,7 +50,7 @@ export default function LeaderboardClient() {
   useEffect(() => {
     fetchData(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address]);
+  }, [address, saAddress]);
 
   // Refetch fresh when window gains focus or tab becomes visible (switching tabs)
   useEffect(() => {
@@ -54,7 +65,7 @@ export default function LeaderboardClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const lower = address?.toLowerCase();
+  //const lower = address?.toLowerCase();
 
   if (loading)
     return <div style={{ opacity: 0.8, color: "#cbd5e1" }}>Loading leaderboard…</div>;
@@ -63,13 +74,17 @@ export default function LeaderboardClient() {
     return <div style={{ color: "#cbd5e1" }}>Leaderboard unavailable.</div>;
   }
 
-  const inTop = data.top20.some((r) => (r.address || "").toLowerCase() === (lower || ""));
-  const showPinned = !!lower && !inTop;
+  //const inTop = data.top20.some((r) => (r.address || "").toLowerCase() === (lower || ""));
+  //const showPinned = !!lower && !inTop;
+  const inTopForAll = highlights.length
+  ? highlights.every(h => data.top20.some(r => (r.address || "").toLowerCase() === h))
+  : false;
+  const showPinned = highlights.length > 0 && !inTopForAll;
 
   // If API couldn't compute rank (e.g., no mints yet), still show your wallet card
  const youRow: Row | null =
   (data.you as any) ??
-  (lower ? { rank: NaN, address: lower, mints: 0, mintedCookies: 0, mintedImages: 0 } : null);
+  (highlights ? { rank: NaN, address: highlights, mints: 0, mintedCookies: 0, mintedImages: 0 } : null);
 
   return (
     <div>
@@ -82,7 +97,7 @@ export default function LeaderboardClient() {
       {/*showPinned && youRow ? <PinnedYouRow you={youRow} hasRank={!!data.you} /> : null*/}
       {showPinned && youRow ? <PinnedYouRow you={youRow} hasRank={Number.isFinite(youRow.rank)} /> : null}
 
-      <Table rows={data.top20} highlight={lower || ""} />
+      <Table rows={data.top20} highlight={highlights} />
       <p style={{ marginTop: 12, color: "#9ca3af" }}>
         {Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(data.updatedAt))}
         {" • "}
@@ -112,13 +127,13 @@ function PinnedYouRow({ you, hasRank }: { you: Row; hasRank: boolean }) {
       )*/}
       {hasRank ? (
           <>
-            Your rank: #{you.rank} • {short(you.address || "")} • {you.mints} mints
+            Your rank: #{you.rank} • {youLabelStr(you.address)} • {you.mints} mints
             {" • Cookies "}{you.mintedCookies ?? 0}
             {" • Images "}{you.mintedImages ?? 0}
           </>
         ) : (
           <>
-            Your wallet: {short(you.address || "")} • No mints yet
+            Your wallet: {youLabelStr(you.address)} • No mints yet
             {" • Cookies 0 • Images 0"}
           </>
         )}
@@ -126,7 +141,8 @@ function PinnedYouRow({ you, hasRank }: { you: Row; hasRank: boolean }) {
   );
 }
 
-function Table({ rows, highlight }: { rows: Row[]; highlight: string }) {
+//function Table({ rows, highlight }: { rows: Row[]; highlight: string }) {
+function Table({ rows, highlight }: { rows: Row[]; highlight: string | string[] }) {
   return (
     <div style={{ overflowX: "auto" }}>
       <table
@@ -174,7 +190,9 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string }) {
           {rows.map((r, i) => {
             const isPlaceholder = !r.address;
             //const isMintedCookies = !r.mintedCookies;
-            const active = !!r.address && r.address.toLowerCase() === highlight;
+            //const active = !!r.address && r.address.toLowerCase() === highlight;
+            const hl = Array.isArray(highlight) ? highlight : [highlight];
+            const active = !!r.address && hl.includes(r.address.toLowerCase());
             const key = (r.address || "placeholder") + "-" + r.rank;
             return (
               <Tr key={key} i={i} active={active}>
@@ -190,7 +208,7 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string }) {
                       rel="noreferrer"
                       style={{ color: "#cbd5e1", textDecoration: "none" }}
                     >
-                      {short(r.address!)}
+                      {youLabelStr(r.address!)}
                     </a>
                   )}
                 </Td>
@@ -240,6 +258,11 @@ function rankCell(rank: number) {
 function short(a?: string) {
   if (!a) return "";
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+function youLabelStr(a?: string | null) {
+  if (!a) return "";
+  return a.split(" + ").map((s) => short(s)).join(" + ");
 }
 
 function pillStyle(rank: number): React.CSSProperties {
