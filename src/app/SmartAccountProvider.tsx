@@ -86,7 +86,11 @@ useEffect(() => {
   };
   // first fetch immediately
   tick();
+<<<<<<< HEAD
   const t = setInterval(tick, 10_000); // <-- every 10s
+=======
+  const t = setInterval(tick, 20_000); // <-- every 10s
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
   return () => {
     alive = false;
     clearInterval(t);

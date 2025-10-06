@@ -27,7 +27,11 @@ import { monadTestnet } from '../../lib/chain';
 
 // [FIXED] Privy + banner
 //import { PrivyProvider } from '@privy-io/react-auth';
+<<<<<<< HEAD
 import MonadGamesIdBanner from '../../components/MonadGamesIdBanner';
+=======
+//import MonadGamesIdBanner from '../components/MonadGamesIdBanner';
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
 
 const COOKIE_ADDRESS = process.env.NEXT_PUBLIC_COOKIE_ADDRESS as `0x${string}`;
 
@@ -122,7 +126,11 @@ export default function Page() {
     address: COOKIE_ADDRESS,
     abi: MIN_ABI,
     functionName: 'mintPrice',
+<<<<<<< HEAD
     query: { refetchInterval: 30000 }, // 30s
+=======
+    query: { refetchInterval: 120000 }, // 120s
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
   });
 
   const prevAddrRef = React.useRef<string | null>(null);
@@ -154,7 +162,11 @@ export default function Page() {
     },
   });
 
+<<<<<<< HEAD
     // + ADD (don’t remove your current address logic)
+=======
+  // + ADD (don’t remove your current address logic)
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
 const { mode, eoaAddress, saAddress, saReady, saBalance } = useSmartAccount();
 
 // The wallet address that should drive reads (holdings)
@@ -234,7 +246,11 @@ const lastMintQ = useQuery({
     const t = window.setInterval(() => {
       qc.invalidateQueries({ queryKey: ['lastMinted', saAddress] });
       qc.invalidateQueries({ queryKey: ['holdings', saAddress, COOKIE_ADDRESS] });
+<<<<<<< HEAD
     }, 10_000);
+=======
+    }, 60_000);
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
     return () => window.clearInterval(t);
   }, [connected, saAddress, qc]);
 
@@ -264,7 +280,11 @@ const lastMintQ = useQuery({
   };
 
   // ---------- Mint ----------
+<<<<<<< HEAD
   const { writeContractAsync } = useWriteContract();
+=======
+  //const { writeContractAsync } = useWriteContract();
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
   const [txHash, setTxHash] = React.useState<`0x${string}` | undefined>(undefined);
 
 
@@ -321,6 +341,7 @@ const saveToPinata = async () => {
   }
 };
 
+<<<<<<< HEAD
 /*
 const onMintImage = async () => {
   setUiError(null);
@@ -347,6 +368,8 @@ const onMintImage = async () => {
   }
 };
 */
+=======
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
 
 const onMintImage = async () => {
   setUiError(null);
@@ -393,6 +416,7 @@ const onMintImage = async () => {
     return; // do not run EOA path
   }
   // --- end Smart Account path ---
+<<<<<<< HEAD
 
 /*
   // (keep your EOA path exactly as-is below)
@@ -417,6 +441,11 @@ const onMintImage = async () => {
   */
 };
 
+=======
+};
+
+
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
 /*
   const onMint = async () => {
     setUiError(null);
@@ -447,7 +476,11 @@ const onMintImage = async () => {
     }
   };
 */
+<<<<<<< HEAD
 /*
+=======
+
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
   const onMint = async () => {
     setUiError(null);
     if (!connected || !address) {
@@ -460,6 +493,7 @@ const onMintImage = async () => {
     }
     setMintBusy(true);
     try {
+<<<<<<< HEAD
       const call: any = {
         address: COOKIE_ADDRESS,
         abi: FortuneABI as Abi,
@@ -497,6 +531,8 @@ const onMint = async () => {
     }
     setMintBusy(true);
     try {
+=======
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
       // @ts-ignore
       //const walletClient = await (await import('wagmi')).getWalletClient({ chainId: monadTestnet.id });
       if (!walletClient) throw new Error('No wallet client');
@@ -524,6 +560,7 @@ const onMint = async () => {
     } finally {
       setMintBusy(false);
     }
+<<<<<<< HEAD
     return; // do not run EOA path
   }
   // --- end Smart Account path ---
@@ -548,6 +585,11 @@ const onMint = async () => {
       setMintBusy(false);
     }
       */
+=======
+    return; 
+  
+  // --- end Smart Account path ---
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
 };
 
   const {
@@ -1081,4 +1123,8 @@ const onMint = async () => {
   );
   */
  return content;
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)

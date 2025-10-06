@@ -32,13 +32,26 @@ export default function LeaderboardClient() {
 const saLower  = saAddress?.toLowerCase();
 const highlights = Array.from(new Set([eoaLower, saLower].filter(Boolean) as string[]));
 
+  const { saAddress } = useSmartAccount();
+  const eoaLower = address?.toLowerCase();
+  const saLower  = saAddress?.toLowerCase();
+  const highlights = Array.from(new Set([eoaLower, saLower].filter(Boolean) as string[]));
+
   function fetchData(fresh = false) {
+<<<<<<< HEAD
     const qs = new URLSearchParams();
     //if (address) qs.set("you", address);
     //if (fresh) qs.set("fresh", "1"); // ⟵ force bypass of server’s 30s cache
     const youList = [address, saAddress].filter(Boolean) as string[];
     if (youList.length) qs.set("you", youList.join(","));
     if (fresh) qs.set("fresh", "1");
+=======
+  const qs = new URLSearchParams();
+  // send BOTH EOA and SA if present
+  const youList = [address, saAddress].filter(Boolean) as string[];
+  if (youList.length) qs.set("you", youList.join(","));
+  if (fresh) qs.set("fresh", "1");
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
     setLoading(true);
     fetch(`/api/leaderboard?${qs.toString()}`, { cache: "no-store" })
       .then((r) => r.json())
@@ -74,17 +87,27 @@ const highlights = Array.from(new Set([eoaLower, saLower].filter(Boolean) as str
     return <div style={{ color: "#cbd5e1" }}>Leaderboard unavailable.</div>;
   }
 
+<<<<<<< HEAD
   //const inTop = data.top20.some((r) => (r.address || "").toLowerCase() === (lower || ""));
   //const showPinned = !!lower && !inTop;
   const inTopForAll = highlights.length
   ? highlights.every(h => data.top20.some(r => (r.address || "").toLowerCase() === h))
   : false;
+=======
+  const inTopForAll = highlights.length
+    ? highlights.every(h => data.top20.some(r => (r.address || "").toLowerCase() === h))
+    : false;
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
   const showPinned = highlights.length > 0 && !inTopForAll;
 
   // If API couldn't compute rank (e.g., no mints yet), still show your wallet card
- const youRow: Row | null =
+const youRow: Row | null =
   (data.you as any) ??
+<<<<<<< HEAD
   (highlights ? { rank: NaN, address: highlights, mints: 0, mintedCookies: 0, mintedImages: 0 } : null);
+=======
+  (highlights.length ? { rank: NaN, address: highlights.join(" + "), mints: 0, mintedCookies: 0, mintedImages: 0 } : null);
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
 
   return (
     <div>
@@ -141,7 +164,10 @@ function PinnedYouRow({ you, hasRank }: { you: Row; hasRank: boolean }) {
   );
 }
 
+<<<<<<< HEAD
 //function Table({ rows, highlight }: { rows: Row[]; highlight: string }) {
+=======
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
 function Table({ rows, highlight }: { rows: Row[]; highlight: string | string[] }) {
   return (
     <div style={{ overflowX: "auto" }}>
@@ -190,7 +216,10 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string | string[] 
           {rows.map((r, i) => {
             const isPlaceholder = !r.address;
             //const isMintedCookies = !r.mintedCookies;
+<<<<<<< HEAD
             //const active = !!r.address && r.address.toLowerCase() === highlight;
+=======
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
             const hl = Array.isArray(highlight) ? highlight : [highlight];
             const active = !!r.address && hl.includes(r.address.toLowerCase());
             const key = (r.address || "placeholder") + "-" + r.rank;

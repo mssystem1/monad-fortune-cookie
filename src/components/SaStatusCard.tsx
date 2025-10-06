@@ -47,9 +47,15 @@ React.useEffect(() => {
   // initial check fast
   check();
 
+<<<<<<< HEAD
   // keep polling every 10s until deployed
   if (!saDeployed) {
     timer = setInterval(check, 10_000);
+=======
+  // keep polling every 20s until deployed
+  if (!saDeployed) {
+    timer = setInterval(check, 20_000);
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
   }
 
   return () => {
@@ -123,7 +129,11 @@ function short(addr?: string, head: number = 6, tail: number = 4) {
           <span>{eoaBalance ?? '—'} MON</span>
         </div>
 
+<<<<<<< HEAD
         <button
+=======
+          <button
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
             className="btn btn--primary"
             disabled={!saReady || mode === 'eoa'}
             onClick={() => saReady && setMode('eoa')}
@@ -151,7 +161,17 @@ function short(addr?: string, head: number = 6, tail: number = 4) {
 
 */
 
+<<<<<<< HEAD
 setMode('sa');
+=======
+  React.useEffect(() => {
+    if (mode !== 'sa') {
+      setMode('sa');
+    }
+    // empty dep array so it runs only once
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
 
   return (
     <div className="block">
@@ -161,7 +181,11 @@ setMode('sa');
 
         <div className="status__row">
            {/* Use exactly your existing button styles */}
+<<<<<<< HEAD
           
+=======
+
+>>>>>>> 0d0fea5 (Restore working state: remove metamaskSmartAccount.ts, add SmartAccount provider/components, UI fixes)
         </div>
 
         <div className="status__row">
