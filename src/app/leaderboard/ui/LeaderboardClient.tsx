@@ -22,15 +22,8 @@ type Api = {
 
 export default function LeaderboardClient() {
   const { address } = useAccount();
-  const { saAddress } = useSmartAccount();
   const [data, setData] = useState<Api | null>(null);
   const [loading, setLoading] = useState(true);
- // const { mode, saAddress } = useSmartAccount();
- //  const selectedAddress = (mode === 'sa' ? saAddress : address) ?? undefined;
-
- const eoaLower = address?.toLowerCase();
-const saLower  = saAddress?.toLowerCase();
-const highlights = Array.from(new Set([eoaLower, saLower].filter(Boolean) as string[]));
 
   const { saAddress } = useSmartAccount();
   const eoaLower = address?.toLowerCase();
@@ -209,7 +202,7 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string | string[] 
                       rel="noreferrer"
                       style={{ color: "#cbd5e1", textDecoration: "none" }}
                     >
-                      {youLabelStr(r.address!)}
+                      {short(r.address!)}
                     </a>
                   )}
                 </Td>
