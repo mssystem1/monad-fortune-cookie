@@ -14,20 +14,20 @@ import {
   useWalletClient,
 } from 'wagmi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { SaStatusCard } from '../../src/components/SaStatusCard';
-import { useSmartAccount } from '../app/SmartAccountProvider';
-import { bundlerClient } from '../../src/lib/aa/clients';
+import { SaStatusCard } from '../../../src/components/SaStatusCard';
+import { useSmartAccount } from '../../app/SmartAccountProvider';
+import { bundlerClient } from '../../../src/lib/aa/clients';
 
 // + ADD (keep your other imports intact)
-import { buildSmartAccount } from '../../src/lib/aa/smartAccount';
+import { buildSmartAccount } from '../../../src/lib/aa/smartAccount';
 
 // ⬇️ RELATIVE imports (keep your own)
-import FortuneABI from '../abi/FortuneCookiesAI.json';
-import { monadTestnet } from '../lib/chain';
+import FortuneABI from '../../abi/FortuneCookiesAI.json';
+import { monadTestnet } from '../../lib/chain';
 
 // [FIXED] Privy + banner
 //import { PrivyProvider } from '@privy-io/react-auth';
-import MonadGamesIdBanner from '../components/MonadGamesIdBanner';
+import MonadGamesIdBanner from '../../components/MonadGamesIdBanner';
 
 const COOKIE_ADDRESS = process.env.NEXT_PUBLIC_COOKIE_ADDRESS as `0x${string}`;
 
@@ -122,7 +122,7 @@ export default function Page() {
     address: COOKIE_ADDRESS,
     abi: MIN_ABI,
     functionName: 'mintPrice',
-    query: { refetchInterval: 120000 }, // 120s
+    query: { refetchInterval: 30000 }, // 30s
   });
 
   const prevAddrRef = React.useRef<string | null>(null);
@@ -154,19 +154,19 @@ export default function Page() {
     },
   });
 
-  // + ADD (don’t remove your current address logic)
+    // + ADD (don’t remove your current address logic)
 const { mode, eoaAddress, saAddress, saReady, saBalance } = useSmartAccount();
 
 // The wallet address that should drive reads (holdings)
-const selectedAddress: Address | undefined = mode === 'sa' ? saAddress : eoaAddress;
+//const selectedAddress: Address | undefined = mode === 'sa' ? saAddress : eoaAddress;
 
   // ---------- Queries ----------
 const lastMintQ = useQuery({
-  queryKey: ['lastMinted', selectedAddress, COOKIE_ADDRESS],
-  enabled: !!selectedAddress && !!COOKIE_ADDRESS,
+  queryKey: ['lastMinted', saAddress, COOKIE_ADDRESS],
+  enabled: !!saAddress && !!COOKIE_ADDRESS,
   staleTime: 60_000,
   queryFn: async () => {
-    const r = await fetch(`/api/holdings?address=${selectedAddress}&contract=${COOKIE_ADDRESS}`, { cache: 'no-store' });
+    const r = await fetch(`/api/holdings?address=${saAddress}&contract=${COOKIE_ADDRESS}`, { cache: 'no-store' });
     if (!r.ok) return null;
     const j = await r.json();
     const ids = Array.isArray(j?.tokenIds) ? (j.tokenIds as number[]) : [];
@@ -182,25 +182,25 @@ const lastMintQ = useQuery({
     if (serverVal != null) {
       setLastMinted(serverVal);
       try {
-        localStorage.setItem(`fc:lastMinted:${selectedAddress}`, String(serverVal));
+        localStorage.setItem(`fc:lastMinted:${saAddress}`, String(serverVal));
       } catch {}
       return;
     }
     // server null/404 → try localStorage
     try {
-      const s = localStorage.getItem(`fc:lastMinted:${selectedAddress}`);
+      const s = localStorage.getItem(`fc:lastMinted:${saAddress}`);
       if (s && !Number.isNaN(Number(s))) setLastMinted(Number(s));
     } catch {}
-  }, [connected, selectedAddress, lastMintQ.data]);
+  }, [connected, saAddress, lastMintQ.data]);
 
 
   const holdingsQ = useQuery({
-    queryKey: ['holdings', selectedAddress, COOKIE_ADDRESS],
-    enabled: !!selectedAddress && !!COOKIE_ADDRESS,
+    queryKey: ['holdings', saAddress, COOKIE_ADDRESS],
+    enabled: !!saAddress && !!COOKIE_ADDRESS,
     staleTime: 60_000,
     queryFn: async () => {
       const r = await fetch(
-        `/api/holdings?address=${selectedAddress}&contract=${COOKIE_ADDRESS}`,
+        `/api/holdings?address=${saAddress}&contract=${COOKIE_ADDRESS}`,
         { cache: 'no-store' },
       );
       if (!r.ok) return [] as number[];
@@ -219,10 +219,10 @@ const lastMintQ = useQuery({
       const mx = holdingsQ.data[holdingsQ.data.length - 1];
       setLastMinted(mx);
       try {
-        localStorage.setItem(`fc:lastMinted:${selectedAddress}`, String(mx));
+        localStorage.setItem(`fc:lastMinted:${saAddress}`, String(mx));
       } catch {}
     }
-  }, [connected, selectedAddress, lastMintQ.isLoading, lastMintQ.data, holdingsQ.data]);
+  }, [connected, saAddress, lastMintQ.isLoading, lastMintQ.data, holdingsQ.data]);
 
   React.useEffect(() => {
     setHoldingIds(holdingsQ.data ?? []);
@@ -232,11 +232,11 @@ const lastMintQ = useQuery({
   React.useEffect(() => {
     if (!connected) return;
     const t = window.setInterval(() => {
-      qc.invalidateQueries({ queryKey: ['lastMinted', selectedAddress] });
-      qc.invalidateQueries({ queryKey: ['holdings', selectedAddress, COOKIE_ADDRESS] });
-    }, 60_000);
+      qc.invalidateQueries({ queryKey: ['lastMinted', saAddress] });
+      qc.invalidateQueries({ queryKey: ['holdings', saAddress, COOKIE_ADDRESS] });
+    }, 10_000);
     return () => window.clearInterval(t);
-  }, [connected, selectedAddress, qc]);
+  }, [connected, saAddress, qc]);
 
   // ---------- Generate with AI ----------
   const onGenerate = async () => {
@@ -321,6 +321,32 @@ const saveToPinata = async () => {
   }
 };
 
+/*
+const onMintImage = async () => {
+  setUiError(null);
+  if (!connected || !address) { setUiError('Connect your wallet first.'); return; }
+  if (!pinCid) { setUiError('Save the image to Pinata first.'); return; }
+
+  setMintImgBusy(true);
+  try {
+    const call: any = {
+      address: COOKIE_ADDRESS,
+      abi: MIN_ABI,
+      functionName: 'mintWithImage',
+      args: [`fortune`, `ipfs://${pinCid}` ],         // <— if your signature differs, adjust
+    };
+    if (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n) {
+      call.value = onchainMintPrice;
+    }
+    const txHash = await writeContractAsync(call);
+    // You already watch confirmation below; we can rely on that or show a toast here
+  } catch (e: any) {
+    setUiError(String(e?.message || e));
+  } finally {
+    setMintImgBusy(false);
+  }
+};
+*/
 
 const onMintImage = async () => {
   setUiError(null);
@@ -368,6 +394,7 @@ const onMintImage = async () => {
   }
   // --- end Smart Account path ---
 
+/*
   // (keep your EOA path exactly as-is below)
   setMintImgBusy(true);
   try {
@@ -387,8 +414,8 @@ const onMintImage = async () => {
   } finally {
     setMintImgBusy(false);
   }
+  */
 };
-
 
 /*
   const onMint = async () => {
@@ -420,7 +447,7 @@ const onMintImage = async () => {
     }
   };
 */
-
+/*
   const onMint = async () => {
     setUiError(null);
     if (!connected || !address) {
@@ -429,6 +456,43 @@ const onMintImage = async () => {
     }
     if (!fortune?.trim()) {
       setUiError('Enter or generate a fortune first.');
+      return;
+    }
+    setMintBusy(true);
+    try {
+      const call: any = {
+        address: COOKIE_ADDRESS,
+        abi: FortuneABI as Abi,
+        functionName: 'mintWithFortune',
+        args: [fortune],
+      };
+      if (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n) {
+        call.value = onchainMintPrice;
+      }
+      const hash = await writeContractAsync(call);
+    } catch (e: any) {
+      setUiError(String(e?.message || e));
+    } finally {
+      setMintBusy(false);
+    }
+  };
+*/
+const onMint = async () => {
+  setUiError(null);
+  if (!connected || !address) {
+    setUiError('Connect your wallet first.');
+    return;
+  }
+  if (!fortune?.trim()) {
+    setUiError('Enter or generate a fortune first.');
+    return;
+  }
+
+  // --- Smart Account path (ONLY when Smart is ON) ---
+  if (mode === 'sa' && bundlerClient && saReady) {
+    // guard: SA balance must be >= 1.1 MON
+    if (parseEther(String(saBalance ?? '0')) < parseEther('1.1')) {
+      setUiError('need to top up Smart account > 1.1 MON');
       return;
     }
     setMintBusy(true);
@@ -464,6 +528,7 @@ const onMintImage = async () => {
   }
   // --- end Smart Account path ---
 
+  /*
   // (keep your EOA path exactly as-is below)
   setMintBusy(true);
     try {
@@ -482,6 +547,7 @@ const onMintImage = async () => {
     } finally {
       setMintBusy(false);
     }
+      */
 };
 
   const {
@@ -506,14 +572,14 @@ const onMintImage = async () => {
       for (const ev of decoded) {
         if (!ev || (ev as any).eventName == null) continue;
 
-        const evAddr = (ev as any).address as `0x${string}` | undefined;
+        const evAddr = (ev as any).saAddress as `0x${string}` | undefined;
         if (evAddr && evAddr.toLowerCase() !== COOKIE_ADDRESS.toLowerCase()) continue;
 
         if (ev.eventName === 'CookieMinted') {
           const args: any = ev.args;
           const tid = Number(args?.tokenId ?? args?.tokenID ?? args?.id);
           const minter = args?.minter as `0x${string}` | undefined;
-          if (!Number.isNaN(tid) && (!minter || isAddressEqual(minter, address as `0x${string}`))) {
+          if (!Number.isNaN(tid) && (!minter || isAddressEqual(minter, saAddress as `0x${string}`))) {
             foundTokenId = tid;
             break;
           }
@@ -528,7 +594,7 @@ const onMintImage = async () => {
             from &&
             to &&
             isAddressEqual(from, zeroAddress) &&
-            isAddressEqual(to, address as `0x${string}`) &&
+            isAddressEqual(to, saAddress as `0x${string}`) &&
             !Number.isNaN(tid)
           ) {
             foundTokenId = tid;
@@ -543,13 +609,13 @@ const onMintImage = async () => {
     if (foundTokenId != null) {
       setLastMinted(foundTokenId);
       try {
-        localStorage.setItem(`fc:lastMinted:${address}`, String(foundTokenId));
+        localStorage.setItem(`fc:lastMinted:${saAddress}`, String(foundTokenId));
       } catch {}
     }
 
-    qc.invalidateQueries({ queryKey: ['lastMinted', address] });
-    qc.invalidateQueries({ queryKey: ['holdings', address, COOKIE_ADDRESS] });
-  }, [isConfirmed, receipt, address, qc]);
+    qc.invalidateQueries({ queryKey: ['lastMinted', saAddress] });
+    qc.invalidateQueries({ queryKey: ['holdings', saAddress, COOKIE_ADDRESS] });
+  }, [isConfirmed, receipt, saAddress, qc]);
 
   // ---------- UI ----------
 /*{privyCfg ? <MonadGamesIdBanner /> : null}*/

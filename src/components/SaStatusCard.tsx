@@ -47,9 +47,9 @@ React.useEffect(() => {
   // initial check fast
   check();
 
-  // keep polling every 20s until deployed
+  // keep polling every 10s until deployed
   if (!saDeployed) {
-    timer = setInterval(check, 20_000);
+    timer = setInterval(check, 10_000);
   }
 
   return () => {
@@ -123,22 +123,7 @@ function short(addr?: string, head: number = 6, tail: number = 4) {
           <span>{eoaBalance ?? '—'} MON</span>
         </div>
 
-*/
-
-  return (
-    <div className="block">
-      
-      <div className="status">
-        <div className="status__row">
-          <span className="muted">Mode:</span>
-          <span className="pill pill--attention" suppressHydrationWarning>
-            {mode === 'sa' ? 'Smart Account' : 'Simple Wallet (EOA)'}
-          </span>        
-        </div>
-
-        <div className="status__row">
-           {/* Use exactly your existing button styles */}
-          <button
+        <button
             className="btn btn--primary"
             disabled={!saReady || mode === 'eoa'}
             onClick={() => saReady && setMode('eoa')}
@@ -156,6 +141,27 @@ function short(addr?: string, head: number = 6, tail: number = 4) {
           >
             Use Smart Account
           </button>
+
+                  <div className="status__row">
+          <span className="muted">Mode:</span>
+          <span className="pill pill--attention" suppressHydrationWarning>
+            {mode === 'sa' ? 'Smart Account' : 'Simple Wallet (EOA)'}
+          </span>        
+        </div>
+
+*/
+
+setMode('sa');
+
+  return (
+    <div className="block">
+      
+      <div className="status">
+
+
+        <div className="status__row">
+           {/* Use exactly your existing button styles */}
+          
         </div>
 
         <div className="status__row">

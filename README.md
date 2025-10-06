@@ -9,12 +9,12 @@ Turn short prompts into fortunes powered by AI, mint them as NFTs on **Monad Tes
 - **AI fortune generator** – Give a topic + vibe (+ optional name).
 - **Preview fortune** - check what fortune was generated.
 - **One-click mint Fortune** – Calls your contract’s `mintWithFortune(string)`.
-- **Last minted** – Persisted per wallet; shows explorer link + “Share on X”.
-- **Current holdings** – Exact token IDs currently owned by the connected wallet.
+- **Last minted** – Persisted per wallet (EOA and Smart Account); shows explorer link + “Share on X”.
+- **Current holdings** – Exact token IDs currently owned by the connected wallet (EOA and Smart Account).
 - **Leaderboard (Top-20)** – Beautiful purple-accented table:
   - Sorted by **total cookie NFTs minted** (descending).
   - **Medals** for ranks 1–3; subtle row glow; light-black table theme.
-  - **Highlight** your wallet if it’s in Top-20.
+  - **Highlight** your wallets (EOA+Smart Account) if it’s in Top-20.
   - If your wallet is **not** in Top-20, a **pinned card** shows your rank and total above the table.
   - Data refetches on mount/focus/tab-switch.
 - **Wallet connect** – On the top tab bar; active tab highlighted in purple.
@@ -23,10 +23,10 @@ Turn short prompts into fortunes powered by AI, mint them as NFTs on **Monad Tes
 - **Preview image** - check what image was generated.
 - **Save to Pinata** - save generated iamge in IPFS.
 - **Mint image** – Calls your contract’s `mintWithImage()`to mint generated image from IPFS.
-- **Added support for Metamask Smart Account** – Metamask Smart Account.
-  - Toggle between Metamask Smart Account and simple wallet EOA
+- **Added separate tab for Metamask Smart Account** – Metamask Smart Account.
   - Create Metamask Smart Account.
-  - Check Metamask Smart Account balance and addresst.
+  - Check Metamask Smart Account Status.
+  - Check Metamask Smart Account balance.
   - Check Metamask Smart Account address.
 
 > **Note:** `scoreAmount` is a **session counter** of new mints while the wallet is connected. It resets after a successful **Register score** and when the page is left/refreshed.
@@ -114,7 +114,6 @@ MIT ©Maksim / MSSystem
 - [OpenAI](https://platform.openai.com/) – for delightful fortunes.
 - [Pinata](https://app.pinata.cloud/) – for Pinata.
 - [Metamask](https://docs.metamask.io/delegation-toolkit/guides/smart-accounts/) – for Metamask.
-
 
 
 
