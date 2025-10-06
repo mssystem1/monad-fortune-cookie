@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createPublicClient, http, parseAbi, isAddress } from 'viem';
+import { createPublicClient, http, parseAbi } from 'viem';
 
 const RPC =
   process.env.NEXT_PUBLIC_RPC_HTTP ||
@@ -41,7 +41,6 @@ type BvResp = {
 
 export async function GET(req: Request) {
   const t0 = Date.now();
-  /*
   const { searchParams } = new URL(req.url);
   const address = (searchParams.get('address') || '').toLowerCase();
   const contract = (searchParams.get('contract') || '').toLowerCase();
@@ -49,18 +48,6 @@ export async function GET(req: Request) {
 
   if (!address || !contract) {
     return NextResponse.json({ ok: false, error: 'address and contract are required' }, { status: 400 });
-  }
-  */
-  const { searchParams } = new URL(req.url);
-  const address = (searchParams.get('address') || '').trim();
-  const contract = (searchParams.get('contract') || '').trim();
-
-  // Basic validation: we only proceed on valid 0x addresses
-  if (!isAddress(address) || !isAddress(contract)) {
-    return NextResponse.json(
-      { tokenIds: [], note: 'invalid address or contract' },
-      { status: 400 }
-    );
   }
 
   const dbg: any = { steps: [] };
@@ -105,7 +92,7 @@ export async function GET(req: Request) {
           source: 'enumerable',
           tokenIds: ids.map(String),
           tookMs: took,
-          //...(debug ? { debug: dbg } : {}),
+          ...(debug ? { debug: dbg } : {}),
         });
       }
       // If balance is 0, fall through to other methods to double-check
@@ -175,7 +162,7 @@ export async function GET(req: Request) {
         tokenIds: ids.map(String),
         scanned: top != null ? Number(top) : Number(process.env.NEXT_PUBLIC_MAX_SCAN || 5000),
         tookMs: took,
-        //...(debug ? { debug: dbg } : {}),
+        ...(debug ? { debug: dbg } : {}),
       });
     }
   } catch (e: any) {
@@ -233,7 +220,7 @@ export async function GET(req: Request) {
           source: 'blockvision',
           tokenIds: uniq,
           tookMs: took,
-          //...(debug ? { debug: dbg } : {}),
+          ...(debug ? { debug: dbg } : {}),
         });
       }
     } else {
@@ -250,6 +237,6 @@ export async function GET(req: Request) {
     source: 'none',
     tokenIds: [],
     tookMs: took,
-   // ...(debug ? { debug: dbg } : {}),
+    ...(debug ? { debug: dbg } : {}),
   });
 }
