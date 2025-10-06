@@ -6,11 +6,12 @@ import { useSmartAccount } from '../../../app/SmartAccountProvider';
 
 type Row = {
   rank: number;
-  address?: string | null;
+  address?: string | string[] | null; // ← allow array
   mints: number;
   mintedCookies?: number;
   mintedImages?: number;
 };
+
 type Api = {
   top20: Row[];
   you: Row | null;
@@ -71,16 +72,54 @@ export default function LeaderboardClient() {
     return <div style={{ color: "#cbd5e1" }}>Leaderboard unavailable.</div>;
   }
 
-  const inTopForAll = highlights.length
-    ? highlights.every(h => data.top20.some(r => (r.address || "").toLowerCase() === h))
-    : false;
+const inTopForAll = highlights.length
+  ? highlights.every((h) => data.top20.some((r) => lowers(r.address).includes(h)))
+  : false;
   const showPinned = highlights.length > 0 && !inTopForAll;
 
   // If API couldn't compute rank (e.g., no mints yet), still show your wallet card
- const youRow: Row | null =
+  /*
+const youRow: Row | null =
   (data.you as any) ??
-  (highlights.length ? { rank: NaN, address: highlights.join(" + "), mints: 0, mintedCookies: 0, mintedImages: 0 } : null);
+  ([address, saAddress].filter(Boolean).length
+    ? {
+        rank: NaN,
+        address: [address, saAddress].filter(Boolean) as string[], // ← array, not "a + b"
+        mints: 0,
+        mintedCookies: 0,
+        mintedImages: 0,
+      }
+    : null);
+*/
 
+// Derive "you" from Top-20 if API omitted it.
+// If any of your wallets (EOA/SA) appear in Top-20, show their real rank & totals.
+const youRow: Row | null = (data.you as any) ?? (() => {
+  const wallets = [address, saAddress].filter(Boolean) as string[];
+  if (!wallets.length) return null;
+
+  const wanted = wallets.map((w) => w.toLowerCase());
+  const hits = data.top20.filter((r) => lowers(r.address).some((a) => wanted.includes(a)));
+
+  if (!hits.length) {
+    // nothing on the board yet → keep the “no mints yet” fallback
+    return {
+      rank: Number.NaN,
+      address: wallets, // keep as array
+      mints: 0,
+      mintedCookies: 0,
+      mintedImages: 0,
+    };
+  }
+
+  // aggregate across any hit (EOA and/or SA if both appear)
+  const rank = Math.min(...hits.map((r) => r.rank));
+  const mints = hits.reduce((acc, r) => acc + (r.mints || 0), 0);
+  const mintedCookies = hits.reduce((acc, r) => acc + (r.mintedCookies || 0), 0);
+  const mintedImages = hits.reduce((acc, r) => acc + (r.mintedImages || 0), 0);
+
+  return { rank, address: wallets, mints, mintedCookies, mintedImages };
+})();
 
   return (
     <div>
@@ -104,6 +143,11 @@ export default function LeaderboardClient() {
 }
 
 function PinnedYouRow({ you, hasRank }: { you: Row; hasRank: boolean }) {
+  const mints   = you.mints ?? 0;
+  const cookies = you.mintedCookies ?? 0;
+  const images  = you.mintedImages ?? 0;
+  const hasAnyActivity = mints > 0 || cookies > 0 || images > 0;
+
   return (
     <div
       style={{
@@ -116,23 +160,19 @@ function PinnedYouRow({ you, hasRank }: { you: Row; hasRank: boolean }) {
         fontWeight: 800,
       }}
     >
-      {/*hasRank ? (
-        <>Your rank: #{you.rank} • {short(you.address || "")} • {you.mints} mints</>
+      {hasRank || hasAnyActivity ? (
+        <>
+          {hasRank ? `Your rank: #${you.rank} • ` : `Your wallet: `}
+          {youLabelStr(you.address)} • {mints} mints
+          {" • Cookies "}{cookies}
+          {" • Images "}{images}
+        </>
       ) : (
-        <>Your wallet: {short(you.address || "")} • No mints yet</>
-      )*/}
-      {hasRank ? (
-          <>
-            Your rank: #{you.rank} • {youLabelStr(you.address)} • {you.mints} mints
-            {" • Cookies "}{you.mintedCookies ?? 0}
-            {" • Images "}{you.mintedImages ?? 0}
-          </>
-        ) : (
-          <>
-            Your wallet: {youLabelStr(you.address)} • No mints yet
-            {" • Cookies 0 • Images 0"}
-          </>
-        )}
+        <>
+          Your wallet: {youLabelStr(you.address)} • No mints yet
+          {" • Cookies 0 • Images 0"}
+        </>
+      )}
     </div>
   );
 }
@@ -186,7 +226,9 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string | string[] 
             const isPlaceholder = !r.address;
             //const isMintedCookies = !r.mintedCookies;
             const hl = Array.isArray(highlight) ? highlight : [highlight];
-            const active = !!r.address && hl.includes(r.address.toLowerCase());
+            const rowLowers = lowers(r.address);
+            //const active = rowLowers.some((a) => highlight.includes(a));
+            const active = rowLowers.some((a) => hl.includes(a));
             const key = (r.address || "placeholder") + "-" + r.rank;
             return (
               <Tr key={key} i={i} active={active}>
@@ -202,7 +244,7 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string | string[] 
                       rel="noreferrer"
                       style={{ color: "#cbd5e1", textDecoration: "none" }}
                     >
-                      {short(r.address!)}
+                      {youLabelStr(r.address!)}
                     </a>
                   )}
                 </Td>
@@ -254,9 +296,10 @@ function short(a?: string) {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
-function youLabelStr(a?: string | null) {
+function youLabelStr(a?: string | string[] | null) {
   if (!a) return "";
-  return a.split(" + ").map((s) => short(s)).join(" + ");
+  const parts = Array.isArray(a) ? a : String(a).split(" + ").map(s => s.trim()).filter(Boolean);
+  return parts.map((s) => short(s)).join(" + ");
 }
 
 function pillStyle(rank: number): React.CSSProperties {
@@ -276,4 +319,14 @@ function pillStyle(rank: number): React.CSSProperties {
     color: palette.fg,
     border: `1px solid ${palette.b}`,
   };
+}
+
+// put these near your other helpers (e.g., below `short` / above `youLabelStr`)
+type AddrInput = string | string[] | null | undefined;
+
+function toArray(v: AddrInput): string[] {
+  return Array.isArray(v) ? v : v ? [v] : [];
+}
+function lowers(v: AddrInput): string[] {
+  return toArray(v).map((s) => s.toLowerCase());
 }
