@@ -86,7 +86,7 @@ useEffect(() => {
   };
   // first fetch immediately
   tick();
-  const t = setInterval(tick, 10_000); // <-- every 10s
+  const t = setInterval(tick, 30_000); // <-- every 10s
   return () => {
     alive = false;
     clearInterval(t);

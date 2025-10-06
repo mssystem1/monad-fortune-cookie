@@ -52,9 +52,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
           {/* Page content */}
           <div style={{ maxWidth: 1280, margin: "0 auto", padding: 8 }}>
-            <SmartAccountProvider>
-            {children}
-            </SmartAccountProvider>
+          <SmartAccountProvider>{children}</SmartAccountProvider>  
           </div>
         </Providers>
       </body>

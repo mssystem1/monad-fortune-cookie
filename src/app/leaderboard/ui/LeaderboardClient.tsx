@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
-import { useSmartAccount } from "../../../app/SmartAccountProvider";
+import { useSmartAccount } from '../../../app/SmartAccountProvider'; 
 
 type Row = {
   rank: number;
@@ -32,10 +32,14 @@ export default function LeaderboardClient() {
 const saLower  = saAddress?.toLowerCase();
 const highlights = Array.from(new Set([eoaLower, saLower].filter(Boolean) as string[]));
 
+  const { saAddress } = useSmartAccount();
+  const eoaLower = address?.toLowerCase();
+  const saLower  = saAddress?.toLowerCase();
+  const highlights = Array.from(new Set([eoaLower, saLower].filter(Boolean) as string[]));
+
   function fetchData(fresh = false) {
     const qs = new URLSearchParams();
-    //if (address) qs.set("you", address);
-    //if (fresh) qs.set("fresh", "1"); // ⟵ force bypass of server’s 30s cache
+    // send BOTH EOA and SA if present
     const youList = [address, saAddress].filter(Boolean) as string[];
     if (youList.length) qs.set("you", youList.join(","));
     if (fresh) qs.set("fresh", "1");
@@ -74,17 +78,16 @@ const highlights = Array.from(new Set([eoaLower, saLower].filter(Boolean) as str
     return <div style={{ color: "#cbd5e1" }}>Leaderboard unavailable.</div>;
   }
 
-  //const inTop = data.top20.some((r) => (r.address || "").toLowerCase() === (lower || ""));
-  //const showPinned = !!lower && !inTop;
   const inTopForAll = highlights.length
-  ? highlights.every(h => data.top20.some(r => (r.address || "").toLowerCase() === h))
-  : false;
+    ? highlights.every(h => data.top20.some(r => (r.address || "").toLowerCase() === h))
+    : false;
   const showPinned = highlights.length > 0 && !inTopForAll;
 
   // If API couldn't compute rank (e.g., no mints yet), still show your wallet card
  const youRow: Row | null =
   (data.you as any) ??
-  (highlights ? { rank: NaN, address: highlights, mints: 0, mintedCookies: 0, mintedImages: 0 } : null);
+  (highlights.length ? { rank: NaN, address: highlights.join(" + "), mints: 0, mintedCookies: 0, mintedImages: 0 } : null);
+
 
   return (
     <div>
@@ -141,7 +144,6 @@ function PinnedYouRow({ you, hasRank }: { you: Row; hasRank: boolean }) {
   );
 }
 
-//function Table({ rows, highlight }: { rows: Row[]; highlight: string }) {
 function Table({ rows, highlight }: { rows: Row[]; highlight: string | string[] }) {
   return (
     <div style={{ overflowX: "auto" }}>
@@ -190,7 +192,6 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string | string[] 
           {rows.map((r, i) => {
             const isPlaceholder = !r.address;
             //const isMintedCookies = !r.mintedCookies;
-            //const active = !!r.address && r.address.toLowerCase() === highlight;
             const hl = Array.isArray(highlight) ? highlight : [highlight];
             const active = !!r.address && hl.includes(r.address.toLowerCase());
             const key = (r.address || "placeholder") + "-" + r.rank;

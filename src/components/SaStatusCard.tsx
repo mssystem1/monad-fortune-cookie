@@ -47,9 +47,9 @@ React.useEffect(() => {
   // initial check fast
   check();
 
-  // keep polling every 10s until deployed
+  // keep polling every 20s until deployed
   if (!saDeployed) {
-    timer = setInterval(check, 10_000);
+    timer = setInterval(check, 20_000);
   }
 
   return () => {
@@ -123,7 +123,14 @@ function short(addr?: string, head: number = 6, tail: number = 4) {
           <span>{eoaBalance ?? '—'} MON</span>
         </div>
 
-        <button
+                <div className="status__row">
+          <span className="muted">Mode:</span>
+          <span className="pill pill--attention" suppressHydrationWarning>
+            {mode === 'sa' ? 'Smart Account' : 'Simple Wallet (EOA)'}
+          </span>        
+        </div>
+
+          <button
             className="btn btn--primary"
             disabled={!saReady || mode === 'eoa'}
             onClick={() => saReady && setMode('eoa')}
@@ -142,16 +149,15 @@ function short(addr?: string, head: number = 6, tail: number = 4) {
             Use Smart Account
           </button>
 
-                  <div className="status__row">
-          <span className="muted">Mode:</span>
-          <span className="pill pill--attention" suppressHydrationWarning>
-            {mode === 'sa' ? 'Smart Account' : 'Simple Wallet (EOA)'}
-          </span>        
-        </div>
-
 */
 
-setMode('sa');
+React.useEffect(() => {
+  if (mode !== 'sa') {
+    setMode('sa');
+  }
+  // empty dep array so it runs only once
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   return (
     <div className="block">
@@ -161,7 +167,7 @@ setMode('sa');
 
         <div className="status__row">
            {/* Use exactly your existing button styles */}
-          
+
         </div>
 
         <div className="status__row">

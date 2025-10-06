@@ -27,7 +27,7 @@ import { monadTestnet } from '../../lib/chain';
 
 // [FIXED] Privy + banner
 //import { PrivyProvider } from '@privy-io/react-auth';
-import MonadGamesIdBanner from '../../components/MonadGamesIdBanner';
+//import MonadGamesIdBanner from '../components/MonadGamesIdBanner';
 
 const COOKIE_ADDRESS = process.env.NEXT_PUBLIC_COOKIE_ADDRESS as `0x${string}`;
 
@@ -122,7 +122,7 @@ export default function Page() {
     address: COOKIE_ADDRESS,
     abi: MIN_ABI,
     functionName: 'mintPrice',
-    query: { refetchInterval: 30000 }, // 30s
+    query: { refetchInterval: 120000 }, // 120s
   });
 
   const prevAddrRef = React.useRef<string | null>(null);
@@ -154,7 +154,7 @@ export default function Page() {
     },
   });
 
-    // + ADD (don’t remove your current address logic)
+  // + ADD (don’t remove your current address logic)
 const { mode, eoaAddress, saAddress, saReady, saBalance } = useSmartAccount();
 
 // The wallet address that should drive reads (holdings)
@@ -234,7 +234,7 @@ const lastMintQ = useQuery({
     const t = window.setInterval(() => {
       qc.invalidateQueries({ queryKey: ['lastMinted', saAddress] });
       qc.invalidateQueries({ queryKey: ['holdings', saAddress, COOKIE_ADDRESS] });
-    }, 10_000);
+    }, 60_000);
     return () => window.clearInterval(t);
   }, [connected, saAddress, qc]);
 
@@ -321,32 +321,6 @@ const saveToPinata = async () => {
   }
 };
 
-/*
-const onMintImage = async () => {
-  setUiError(null);
-  if (!connected || !address) { setUiError('Connect your wallet first.'); return; }
-  if (!pinCid) { setUiError('Save the image to Pinata first.'); return; }
-
-  setMintImgBusy(true);
-  try {
-    const call: any = {
-      address: COOKIE_ADDRESS,
-      abi: MIN_ABI,
-      functionName: 'mintWithImage',
-      args: [`fortune`, `ipfs://${pinCid}` ],         // <— if your signature differs, adjust
-    };
-    if (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n) {
-      call.value = onchainMintPrice;
-    }
-    const txHash = await writeContractAsync(call);
-    // You already watch confirmation below; we can rely on that or show a toast here
-  } catch (e: any) {
-    setUiError(String(e?.message || e));
-  } finally {
-    setMintImgBusy(false);
-  }
-};
-*/
 
 const onMintImage = async () => {
   setUiError(null);
@@ -394,28 +368,8 @@ const onMintImage = async () => {
   }
   // --- end Smart Account path ---
 
-/*
-  // (keep your EOA path exactly as-is below)
-  setMintImgBusy(true);
-  try {
-    const call: any = {
-      address: COOKIE_ADDRESS,
-      abi: MIN_ABI,
-      functionName: 'mintWithImage',
-      args: [`fortune`, `ipfs://${pinCid}`],
-    };
-    if (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n) {
-      call.value = onchainMintPrice;
-    }
-    const hash = await writeContractAsync(call);
-    setTxHash?.(hash); // keep your receipt watcher flow
-  } catch (e: any) {
-    setUiError(String(e?.message || e));
-  } finally {
-    setMintImgBusy(false);
-  }
-  */
 };
+
 
 /*
   const onMint = async () => {
@@ -447,7 +401,7 @@ const onMintImage = async () => {
     }
   };
 */
-/*
+
   const onMint = async () => {
     setUiError(null);
     if (!connected || !address) {
@@ -456,43 +410,6 @@ const onMintImage = async () => {
     }
     if (!fortune?.trim()) {
       setUiError('Enter or generate a fortune first.');
-      return;
-    }
-    setMintBusy(true);
-    try {
-      const call: any = {
-        address: COOKIE_ADDRESS,
-        abi: FortuneABI as Abi,
-        functionName: 'mintWithFortune',
-        args: [fortune],
-      };
-      if (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n) {
-        call.value = onchainMintPrice;
-      }
-      const hash = await writeContractAsync(call);
-    } catch (e: any) {
-      setUiError(String(e?.message || e));
-    } finally {
-      setMintBusy(false);
-    }
-  };
-*/
-const onMint = async () => {
-  setUiError(null);
-  if (!connected || !address) {
-    setUiError('Connect your wallet first.');
-    return;
-  }
-  if (!fortune?.trim()) {
-    setUiError('Enter or generate a fortune first.');
-    return;
-  }
-
-  // --- Smart Account path (ONLY when Smart is ON) ---
-  if (mode === 'sa' && bundlerClient && saReady) {
-    // guard: SA balance must be >= 1.1 MON
-    if (parseEther(String(saBalance ?? '0')) < parseEther('1.1')) {
-      setUiError('need to top up Smart account > 1.1 MON');
       return;
     }
     setMintBusy(true);
@@ -527,28 +444,6 @@ const onMint = async () => {
     return; // do not run EOA path
   }
   // --- end Smart Account path ---
-
-  /*
-  // (keep your EOA path exactly as-is below)
-  setMintBusy(true);
-    try {
-      const call: any = {
-        address: COOKIE_ADDRESS,
-        abi: FortuneABI as Abi,
-        functionName: 'mintWithFortune',
-        args: [fortune],
-      };
-      if (typeof onchainMintPrice === 'bigint' && onchainMintPrice > 0n) {
-        call.value = onchainMintPrice;
-      }
-      const hash = await writeContractAsync(call);
-    } catch (e: any) {
-      setUiError(String(e?.message || e));
-    } finally {
-      setMintBusy(false);
-    }
-      */
-};
 
   const {
     data: receipt,

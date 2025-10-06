@@ -9,6 +9,7 @@ export default function NavTabs() {
 
   const items = [
     { href: "/", label: "Main" },
+    { href: "/SmartAccount", label: "Smart Account" },
     { href: "/leaderboard", label: "Leaderboard" },
     { href: "/SmartAccount", label: "Smart Account" },   // ← new tab
  //   { href: '/mgid-leaderboard', label: 'MGID Leaderboard' },
