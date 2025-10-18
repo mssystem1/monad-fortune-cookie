@@ -1,242 +1,209 @@
-import { NextResponse } from 'next/server';
-import { createPublicClient, http, parseAbi } from 'viem';
+import { NextResponse } from "next/server";
+import fs from "node:fs";
+import path from "node:path";
 
-const RPC =
-  process.env.NEXT_PUBLIC_RPC_HTTP ||
-  process.env.NEXT_PUBLIC_MONAD_RPC_URL ||
-  'https://testnet-rpc.monad.xyz';
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const runtime = "nodejs";
 
-const pc = createPublicClient({ transport: http(RPC) });
+const BV_ACCOUNT_NFTS = "https://api.blockvision.org/v2/monad/account/nfts";
 
-// --- TS type helper to satisfy viem's ReadContractParameters intersections ---
-type _Any = any;
-const _READ_OPTS = {
-  authorizationList: undefined as _Any,
-} as const;
+// ---------- DURABLE LAST-GOOD STORAGE (survives dev hot reloads) ----------
+const DB_PATH = process.env.HOLDINGS_DB_PATH || path.join(process.cwd(), ".holdings_last_good.json");
+type GoodRec = { at: number; tokenIds: number[]; tokenIdsFlat: number[] };
 
-// Minimal ABIs for reads (no logs)
-const ABI_BASE = parseAbi([
-  'function balanceOf(address owner) view returns (uint256)',
-  'function ownerOf(uint256 tokenId) view returns (address)',
-  'function supportsInterface(bytes4 interfaceId) view returns (bool)',
-  'function totalSupply() view returns (uint256)', // may not exist (ERC721A usually has it)
-]);
+// in-memory map
+const LAST_GOOD = new Map<string, GoodRec>();
 
-const ABI_ENUM = parseAbi([
-  'function balanceOf(address owner) view returns (uint256)',
-  'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
-  'function supportsInterface(bytes4 interfaceId) view returns (bool)',
-]);
+function loadDbOnce() {
+  try {
+    if (fs.existsSync(DB_PATH)) {
+      const raw = fs.readFileSync(DB_PATH, "utf8");
+      const obj = JSON.parse(raw) as Record<string, GoodRec>;
+      for (const k of Object.keys(obj)) LAST_GOOD.set(k, obj[k]);
+    }
+  } catch { /* ignore */ }
+}
+function saveDb() {
+  try {
+    const obj: Record<string, GoodRec> = {};
+    for (const [k, v] of LAST_GOOD.entries()) obj[k] = v;
+    fs.writeFileSync(DB_PATH, JSON.stringify(obj), "utf8");
+  } catch { /* ignore */ }
+}
+loadDbOnce();
 
-const BV_URL = 'https://api.blockvision.org/v2/monad/account/nfts';
+// ---------- Short “ephemeral” cache just to avoid hammering BV ----------
+type Ephemeral = { at: number; payload: any };
+const EPHEMERAL = new Map<string, Ephemeral>();
+const TTL_MS = Number(process.env.HOLDINGS_TTL_MS ?? 45_000);
 
-type BvItem = { contractAddress: string; tokenId: string };
-type BvCollection = { contractAddress: string; items?: BvItem[] };
-type BvResp = {
-  code: number;
-  message?: string;
-  reason?: string;
-  result?: { data?: BvCollection[]; nextPageIndex?: number };
-};
+// ---------- Backoff / pacing ----------
+const MAX_RETRIES = Number(process.env.BV_MAX_RETRIES ?? 5);
+const BASE_DELAY = Number(process.env.BV_BASE_DELAY_MS ?? 400);
+const PAGE_DELAY = Number(process.env.BV_PAGE_DELAY_MS ?? 300);
+const REQ_TIMEOUT_MS = Number(process.env.BV_REQ_TIMEOUT_MS ?? 12000);
+const jitter = (min = 80, max = 220) => Math.floor(Math.random() * (max - min + 1)) + min;
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const backoff = (n: number, retryAfter?: number) =>
+  retryAfter && retryAfter > 0 ? retryAfter * 1000 : Math.min(5000, Math.round(BASE_DELAY * 2 ** n) + jitter());
+
+function ok(payload: any, cacheHdr = "no-store") {
+  return NextResponse.json(payload, { headers: { "Cache-Control": cacheHdr } });
+}
+function staleFrom(key: string) {
+  const good = LAST_GOOD.get(key);
+  if (!good) return null;
+  return ok({
+    ok: true,
+    source: "blockvision/account-nfts (stale)",
+    stale: true,
+    tokenIds: good.tokenIds,
+    tokenIdsFlat: good.tokenIdsFlat,
+    lastGoodAt: good.at
+  }, "no-store");
+}
+function strictAddr(x: string | null) {
+  return (x || "").toLowerCase();
+}
+function isHexAddr(x: string) {
+  return /^0x[a-f0-9]{40}$/.test(x);
+}
+
+async function safeJson(res: Response): Promise<any> {
+  try { return await res.json(); }
+  catch { return { __raw: await res.text().catch(() => "") }; }
+}
+async function fetchBV(url: string, init: RequestInit): Promise<Response> {
+  for (let i = 0; i <= MAX_RETRIES; i++) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), REQ_TIMEOUT_MS);
+    try {
+      const r = await fetch(url, { ...init, signal: ctl.signal });
+      clearTimeout(t);
+      if (r.ok) return r;
+      if (r.status === 429 || (r.status >= 500 && r.status < 600)) {
+        if (i === MAX_RETRIES) return r;
+        const ra = Number(r.headers.get("retry-after") ?? "");
+        await sleep(backoff(i, Number.isFinite(ra) ? ra : undefined));
+        continue;
+      }
+      return r; // 4xx not retried
+    } catch (e) {
+      clearTimeout(t);
+      if (i === MAX_RETRIES) throw e;
+      await sleep(backoff(i));
+    }
+  }
+  throw new Error("Exhausted retries");
+}
 
 export async function GET(req: Request) {
-  const t0 = Date.now();
-  const { searchParams } = new URL(req.url);
-  const address = (searchParams.get('address') || '').toLowerCase();
-  const contract = (searchParams.get('contract') || '').toLowerCase();
-  const debug = searchParams.get('debug') === '1';
+  const url = new URL(req.url);
+  const address = strictAddr(url.searchParams.get("address"));
+  const contract = strictAddr(url.searchParams.get("contract") || process.env.NEXT_PUBLIC_COOKIE_ADDRESS || "");
+  const fresh = url.searchParams.get("fresh") === "1";
 
-  if (!address || !contract) {
-    return NextResponse.json({ ok: false, error: 'address and contract are required' }, { status: 400 });
+  if (!isHexAddr(address)) return ok({ ok: false, error: "Bad or missing ?address" });
+  if (!isHexAddr(contract)) return ok({ ok: false, error: "Bad or missing ?contract (or NEXT_PUBLIC_COOKIE_ADDRESS)" });
+
+  const apiKey = process.env.BLOCKVISION_API_KEY;
+  if (!apiKey) return ok({ ok: false, error: "BLOCKVISION_API_KEY is not set" });
+
+  const key = `${address}:${contract}`;
+
+  // Serve recent (non-empty) payload quickly if available
+  if (!fresh) {
+    const eph = EPHEMERAL.get(key);
+    if (eph && Date.now() - eph.at < TTL_MS) return ok(eph.payload);
   }
 
-  const dbg: any = { steps: [] };
+  // Always try to fetch fresh, but NEVER clear last-good on failure/empty
+  const headers = { "x-api-key": apiKey, "accept": "application/json" } as const;
+  const init: RequestInit = { headers, cache: "no-store" };
 
-  // 1) Try ERC721Enumerable path
-  
   try {
-    const enumerable = await pc.readContract({
-      ..._READ_OPTS,
-      address: contract as `0x${string}`,
-      abi: ABI_ENUM,
-      functionName: 'supportsInterface',
-      args: ['0x780e9d63'] as const, // ERC-721 Enumerable
-    });
-    dbg.steps.push({ enumerable });
+    let pageIndex = 1;
+    const collections: any[] = [];
+    let pagesFetched = 0;
 
-    if (enumerable) {
-      const bal = (await pc.readContract({
-        ..._READ_OPTS,
-        address: contract as `0x${string}`,
-        abi: ABI_ENUM,
-        functionName: 'balanceOf',
-        args: [address as `0x${string}`] as const,
-      })) as bigint;
+    while (true) {
+      const res = await fetchBV(`${BV_ACCOUNT_NFTS}?address=${address}&pageIndex=${pageIndex}`, init);
 
-      const ids: bigint[] = [];
-      for (let i = 0n; i < bal; i++) {
-        const id = (await pc.readContract({
-          ..._READ_OPTS,
-          address: contract as `0x${string}`,
-          abi: ABI_ENUM,
-          functionName: 'tokenOfOwnerByIndex',
-          args: [address as `0x${string}`, i] as const,
-        })) as bigint;
-        ids.push(id);
+      if (!res.ok) {
+        // On any upstream error -> return last-good if exists (never wipe)
+        const stale = staleFrom(key);
+        if (stale) return stale;
+        // First ever call & no last-good yet: return soft empty (no IDs)
+        return ok({ ok: false, error: `BlockVision error ${res.status}` });
       }
-      if (ids.length) {
-        ids.sort((a, b) => (a < b ? -1 : 1));
-        const took = Date.now() - t0;
-        return NextResponse.json({
-          ok: true,
-          source: 'enumerable',
-          tokenIds: ids.map(String),
-          tookMs: took,
-          ...(debug ? { debug: dbg } : {}),
-        });
+
+      const j = await safeJson(res);
+      const page = j?.result?.data ?? j?.data ?? j?.collections ?? [];
+      if (Array.isArray(page) && page.length) {
+        collections.push(...page);
+        pagesFetched++;
+      } else {
+        break;
       }
-      // If balance is 0, fall through to other methods to double-check
-    }
-  } catch (e: any) {
-    dbg.steps.push({ enumerableError: e?.message || String(e) });
-  }
 
-  // 2) On-chain ownerOf scan (uses totalSupply if available; otherwise 0..MAX_SCAN)
-  try {
-    const MAX_SCAN = Number(process.env.NEXT_PUBLIC_MAX_SCAN || '5000');
-    let top: bigint | null = null;
-    try {
-      top = (await pc.readContract({
-        ..._READ_OPTS,
-        address: contract as `0x${string}`,
-        abi: ABI_BASE,
-        functionName: 'totalSupply',
-      })) as bigint;
-      dbg.steps.push({ totalSupply: top.toString() });
-    } catch {
-      dbg.steps.push({ totalSupply: 'not available' });
+      const next = j?.result?.nextPageIndex ?? j?.nextPageIndex ?? j?.result?.nextPage ?? j?.nextPage ?? null;
+      const hasNext = j?.result?.hasNext ?? j?.hasNext ?? (typeof next === "number" && next !== pageIndex);
+      if (!hasNext) break;
+      pageIndex = typeof next === "number" && next !== pageIndex ? next : pageIndex + 1;
+      await sleep(PAGE_DELAY + jitter(70, 180));
     }
 
-    let targetCount: bigint | null = null;
-    try {
-      targetCount = (await pc.readContract({
-        ..._READ_OPTS,
-        address: contract as `0x${string}`,
-        abi: ABI_BASE,
-        functionName: 'balanceOf',
-        args: [address as `0x${string}`] as const,
-      })) as bigint;
-      dbg.steps.push({ balanceOf: targetCount.toString() });
-    } catch {
-      dbg.steps.push({ balanceOf: 'failed' });
-    }
-
-    const ids: bigint[] = [];
-    const start = 0n;
-    const endExclusive = top != null ? top : BigInt(MAX_SCAN);
-
-    for (let id = start; id < endExclusive; id++) {
-      try {
-        const owner = (await pc.readContract({
-          ..._READ_OPTS,
-          address: contract as `0x${string}`,
-          abi: ABI_BASE,
-          functionName: 'ownerOf',
-          args: [id] as const,
-        })) as `0x${string}`;
-        if (owner.toLowerCase() === address) {
-          ids.push(id);
-          if (targetCount != null && BigInt(ids.length) >= targetCount) break;
-        }
-      } catch {
-        // non-existent tokenId → ignore
-      }
-    }
-
-    if (ids.length) {
-      ids.sort((a, b) => (a < b ? -1 : 1));
-      const took = Date.now() - t0;
-      return NextResponse.json({
-        ok: true,
-        source: top != null ? 'ownerOf-scan(totalSupply)' : 'ownerOf-scan(maxScan)',
-        tokenIds: ids.map(String),
-        scanned: top != null ? Number(top) : Number(process.env.NEXT_PUBLIC_MAX_SCAN || 5000),
-        tookMs: took,
-        ...(debug ? { debug: dbg } : {}),
+    // Extract items for our contract
+    const items = collections
+      .filter((c: any) => strictAddr(String(c?.contractAddress ?? c?.contract_address ?? "")) === contract)
+      .flatMap((c: any) => {
+        const arr = c?.items ?? c?.assets ?? c?.list ?? c?.tokens ?? [];
+        return Array.isArray(arr) ? arr : [];
       });
-    }
-  } catch (e: any) {
-    dbg.steps.push({ ownerOfScanError: e?.message || String(e) });
-  }
-  
 
-  // 3) BlockVision fallback (optional)
-  try {
-    const API_KEY = process.env.BLOCKVISION_API_KEY;
-    if (API_KEY) {
-      const collected: string[] = [];
-      let pageIndex = 1;
+    const tokenIds = Array.from(
+      new Set(
+        items.map((it: any) => Number(it?.tokenId ?? it?.token_id ?? it?.id)).filter((n: number) => Number.isFinite(n))
+      )
+    ).sort((a, b) => a - b);
 
-      for (let safety = 0; safety < 200; safety++) {
-        const qs = new URLSearchParams({
-          address,
-          pageIndex: String(pageIndex),
-          verified: 'true',
-          unknown: 'true',
-        });
-        const r = await fetch(`${BV_URL}?${qs.toString()}`, {
-          headers: { 'X-API-Key': API_KEY },
-          cache: 'no-store',
-        });
-        const j = (await r.json()) as BvResp;
+    const tokenIdsFlat = items.flatMap((it: any) => {
+      const id = Number(it?.tokenId ?? it?.token_id ?? it?.id);
+      const qty = Math.max(1, Number(it?.qty ?? it?.amount ?? it?.balance ?? 1));
+      if (!Number.isFinite(id)) return [];
+      return new Array(qty).fill(id);
+    });
 
-        if (!r.ok || j.code !== 0) {
-          dbg.steps.push({ blockvisionError: j.message || j.reason || `HTTP ${r.status}` });
-          break;
-        }
-
-        const cols = j.result?.data || [];
-        dbg.steps.push({ pageIndex, collections: cols.length });
-
-        for (const c of cols) {
-          if ((c.contractAddress || '').toLowerCase() !== contract) continue;
-          for (const it of c.items || []) {
-            if ((it.contractAddress || '').toLowerCase() === contract && it.tokenId) {
-              collected.push(String(it.tokenId));
-            }
-          }
-        }
-
-        const next = j.result?.nextPageIndex;
-        if (!next || next === pageIndex) break;
-        pageIndex = next;
-      }
-
-      if (collected.length) {
-        const uniq = Array.from(new Set(collected)).sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1));
-        const took = Date.now() - t0;
-        return NextResponse.json({
-          ok: true,
-          source: 'blockvision',
-          tokenIds: uniq,
-          tookMs: took,
-          ...(debug ? { debug: dbg } : {}),
-        });
-      }
+    // ---------- STICKY GUARANTEE ----------
+    if (tokenIds.length > 0) {
+      const payload = {
+        ok: true,
+        source: "blockvision/account-nfts",
+        tokenIds,
+        tokenIdsFlat,
+        collectionCountScanned: collections.length,
+        pagesFetched
+      };
+      // Save durable last-good (write-through to disk)
+      LAST_GOOD.set(key, { at: Date.now(), tokenIds, tokenIdsFlat });
+      try { saveDb(); } catch {}
+      // Update ephemeral read-through cache
+      EPHEMERAL.set(key, { at: Date.now(), payload });
+      return ok(payload);
     } else {
-      dbg.steps.push({ blockvision: 'no API key set' });
+      // Empty fetch → NEVER clear last-good; return stale if exists
+      const stale = staleFrom(key);
+      if (stale) return stale;
+      // First-ever call: soft empty (no IDs). Client should keep previous UI.
+      return ok({ ok: false, error: "No tokenIds available yet" });
     }
-  } catch (e: any) {
-    dbg.steps.push({ blockvisionCatch: e?.message || String(e) });
-  }
+    // -------------------------------------
 
-  // Nothing found
-  const took = Date.now() - t0;
-  return NextResponse.json({
-    ok: true,
-    source: 'none',
-    tokenIds: [],
-    tookMs: took,
-    ...(debug ? { debug: dbg } : {}),
-  });
+  } catch (e: any) {
+    // Network/timeout → also return last-good if exists
+    const stale = staleFrom(key);
+    if (stale) return stale;
+    return ok({ ok: false, error: e?.message || String(e) });
+  }
 }

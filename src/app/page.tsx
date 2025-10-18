@@ -201,7 +201,7 @@ const lastMintQ = useQuery({
     const t = window.setInterval(() => {
       qc.invalidateQueries({ queryKey: ['lastMinted', address] });
       qc.invalidateQueries({ queryKey: ['holdings', address, COOKIE_ADDRESS] });
-    }, 10_000);
+    }, 60_000);
     return () => window.clearInterval(t);
   }, [connected, address, qc]);
 

@@ -40,7 +40,7 @@ Turn short prompts into fortunes powered by AI, mint them as NFTs on **Monad Tes
 - **Next.js (App Router) + React + TypeScript**
 - **wagmi + RainbowKit + Privy + viem** (Raibow + Privy(Monad Games ID) wallets & RPC)
 - **React Query** (client fetching)
-- **BlockVision** (indexer for leaderboard/holdings)
+- **BlockVision** (Monad indexer APIs for leaderboard/holdings)
 - **OpenAI** (main fortune generation)
 - **Pinata** (IFPS storage)
 - **Metamask** (Metamask Smart Account)
@@ -110,7 +110,7 @@ MIT ©Maksim / MSSystem
 
 - [Monad](https://docs.monad.xyz/) – EVM-compatible L1 with serious performance.  
 - [wagmi](https://wagmi.sh/), [RainbowKit](https://www.rainbowkit.com/), [viem](https://viem.sh/) – smooth wallet & RPC tooling.  
-- [BlockVision](https://blockvision.org/) – optional indexer fallback.  
+- [BlockVision](https://blockvision.org/) – Monad indexer APIs fallback.  
 - [OpenAI](https://platform.openai.com/) – for delightful fortunes.
 - [Pinata](https://app.pinata.cloud/) – for Pinata.
 - [Metamask](https://docs.metamask.io/delegation-toolkit/guides/smart-accounts/) – for Metamask.
