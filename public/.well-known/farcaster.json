@@ -16,6 +16,6 @@
     "webhookUrl": "https://monad-fortune-cookies.vercel.app/api/farcaster-webhook",
     "subtitle": "Monad Fortune Cookie",
     "description": "Use AI to turn text into Monad blessing cookies or images, mint them on Monad testnet as NFTs. Track COOKIE mints and climb the leaderboard",
-    "primaryCategory": "Social"
+    "primaryCategory": "social"
   }
 }
