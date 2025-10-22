@@ -1,0 +1,21 @@
+{
+  "accountAssociation": {
+    "header": "<base64>",
+    "payload": "<base64>",
+    "signature": "<base64>"
+  },
+  "miniapp": {
+    "version": "1",
+    "name": "Monad Fortune Cookie",
+    "iconUrl": "https://monad-fortune-cookies.vercel.app/ms-logo.png",
+    "homeUrl": "https://monad-fortune-cookies.vercel.app/mini",
+    "imageUrl": "https://monad-fortune-cookies.vercel.app/ms-logo.png",
+    "buttonTitle": "Open",
+    "splashImageUrl": "https://monad-fortune-cookies.vercel.app/ms-logo.png",
+    "splashBackgroundColor": "#0b0b10",
+    "webhookUrl": "https://monad-fortune-cookies.vercel.app/api/farcaster-webhook",
+    "subtitle": "Monad Fortune Cookie",
+    "description": "Use AI to convert txt to Monad blessing cookies or to convert txt to image, Then mint them on Monad testnet as NFT. Track how many COOKIE NFTs you minted. Climb leaderboard.",
+    "primaryCategory": "GameFi"
+  }
+}

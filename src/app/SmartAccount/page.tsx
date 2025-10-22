@@ -40,11 +40,11 @@ const xShareUrl = (tokenId: number) => {
   )}`;
 };
 
-const MIN_ABI = parseAbi([
-  'function mintPrice() view returns (uint256)',
-  // If your contract takes different args (e.g., (string imageCid, string fortune)), adjust here and in onMintImage()
-  'function mintWithImage(string fortune, string imageCid) payable returns (uint256)',
-]);
+//const MIN_ABI = parseAbi([
+//  'function mintPrice() view returns (uint256)',
+ // If your contract takes different args (e.g., (string imageCid, string fortune)), adjust here and in onMintImage()
+ // 'function mintWithImage(string fortune, string imageCid) payable returns (uint256)',
+//]);
 
 // Minimal AA sender to avoid TS2589 noise
 const sendSaUo = async ({
@@ -120,7 +120,7 @@ export default function Page() {
 
   const { data: onchainMintPrice } = useReadContract({
     address: COOKIE_ADDRESS,
-    abi: MIN_ABI,
+    abi: FortuneABI,
     functionName: 'mintPrice',
     query: { refetchInterval: 120000 }, // 120s
   });
@@ -345,7 +345,7 @@ const onMintImage = async () => {
 
       // EXACT same ABI/function/args as your EOA path:
       const data = encodeFunctionData({
-        abi: MIN_ABI,
+        abi: FortuneABI,
         functionName: 'mintWithImage',
         args: [`fortune`, `ipfs://${pinCid}`],
       });

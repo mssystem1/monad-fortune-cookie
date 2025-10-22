@@ -3,12 +3,20 @@ import { useSmartAccount } from '../app/SmartAccountProvider';
 
 import * as React from 'react'; // if not already present
 import { useWalletClient } from 'wagmi';
-import { encodeFunctionData, parseEther, type Address } from 'viem';
+import { encodeFunctionData, parseEther, type Address, createWalletClient, custom} from 'viem';
 import FortuneABI from '../abi/FortuneCookiesAI.json';
 import { buildSmartAccount } from '../lib/aa/smartAccount';
 import { bundlerClient, publicClient } from '../lib/aa/clients';
 
+import { usePathname } from 'next/navigation'; // NEW
+
+import { monadTestnet } from '../../src/lib/chain';
+
+//import { sendAndWaitUserOperation } from "../lib/aa/userOp";
+
 const COOKIE_ADDRESS = process.env.NEXT_PUBLIC_COOKIE_ADDRESS as `0x${string}`;
+
+const getMiniSdk = async () => (await import('@farcaster/miniapp-sdk')).sdk;
 
 export function SaStatusCard() {
   const {
@@ -16,6 +24,9 @@ export function SaStatusCard() {
     eoaAddress, eoaBalance,
     saAddress, saBalance, saReady
   } = useSmartAccount();
+
+const pathname = usePathname();
+const isMini = !!pathname && pathname.startsWith('/mini');
 
 const { data: walletClient } = useWalletClient();
 const [creating, setCreating] = React.useState(false);
@@ -65,25 +76,56 @@ const lowCreateBalance =
   parseEther(String(saBalance ?? '0')) < parseEther('0.2');
 
 async function onCreateSa() {
-  if (!walletClient) return;
+  // Prefer the Wagmi wallet (main). If missing AND we are on /mini, create from Farcaster provider.
+  let wc = walletClient as any;
+  if (!wc && isMini) {
+    try {
+      const sdk = await getMiniSdk();
+      if (sdk?.wallet) {
+        const ethProvider = await sdk.wallet.getEthereumProvider();
+        wc = createWalletClient({
+          // IMPORTANT: keep chain consistent with your AA infra (monadTestnet).
+          // If your Mini wallet runs on Base (or another chain), switch this.
+           chain: monadTestnet,
+          transport: custom(ethProvider),
+        });
+      }
+    } catch (e) {
+      console.warn('Mini wallet fallback creation failed:', e);
+    }
+  }
+
+  if (!wc) return;
   setCreating(true);
   try {
     // Build SA (counterfactual OK)
-    const sa = await buildSmartAccount(walletClient as any);
+    const sa = await buildSmartAccount(wc);//(walletClient as any);
+
+       // Pepper to make duplicate clicks not collide in bundler cache
+   // const pepper = BigInt(Date.now() % 1_000_000);
 
     // Zero-value, zero-data call to the Smart Account itself.
     // This is a safe no-op that still produces a valid UserOperation
     // and triggers deployment on first UO.
-    await (bundlerClient as any).sendUserOperation({
-      account: sa as any,
-      calls: [{ to: sa.address as Address, data: '0x', value: 0n }],
-    });
+    //  const calls = [{ to: sa.address as `0x${string}`, data: "0x" as `0x${string}`, value: 0n + pepper * 0n  }];
+    //  const { hash } = await sendAndWaitUserOperation(bundlerClient, publicClient, { account: sa, calls });
+    //  alert(`Smart account deployed!\n${hash}`);
+
+    const code = await publicClient.getCode({ address: sa.address });
+
+    if (!code || code === "0x") {
+      const { factory, factoryData } = await sa.getFactoryArgs();
+      const txHash = await walletClient.sendTransaction({ to: factory, data: factoryData });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+      if (receipt.status !== "success") throw new Error("Smart Account deployment failed");
+    } 
 
     // Optionally: re-check deployment/code (leave your existing code here if you already do it)
     // const code = await publicClient.getBytecode({ address: sa.address as Address });
     // setSaDeployed(!!code && code !== '0x');
   } catch (e) {
-    console.error('create SA error:', e);
+    console.error("Deploy failed:", e?.data ?? e?.details ?? e?.message ?? e);
+    alert("Failed to deploy smart account: " + (e?.data ?? e?.details ?? e?.message ?? e));
   } finally {
     setCreating(false);
   }

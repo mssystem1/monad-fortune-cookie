@@ -28,6 +28,7 @@ Turn short prompts into fortunes powered by AI, mint them as NFTs on **Monad Tes
   - Check Metamask Smart Account Status.
   - Check Metamask Smart Account balance.
   - Check Metamask Smart Account address.
+- **farcaster mini app** – Monad Fortune cookies is live on farcaster mini app.
 
 > **Note:** `scoreAmount` is a **session counter** of new mints while the wallet is connected. It resets after a successful **Register score** and when the page is left/refreshed.
 
@@ -44,6 +45,7 @@ Turn short prompts into fortunes powered by AI, mint them as NFTs on **Monad Tes
 - **OpenAI** (main fortune generation)
 - **Pinata** (IFPS storage)
 - **Metamask** (Metamask Smart Account)
+- **Farcaster** (Farcaster mini app)
 
 ---
 
@@ -67,6 +69,7 @@ OPENAI_API_KEY=sk-... # main; fortunes can also be typed manually
 BLOCKVISION_API_KEY=... # main; enables indexer fallback
 SIGNER_PRIVATE_KEY= # main; enables transaction of game owner
 PINATA_JWT=... #main; enables pinata
+NEXT_PUBLIC_BASE_URL=... #main; your domain
 
 # NEW — your AA bundler (must support Chain ID 10143). Use your own / partner URL.
 NEXT_PUBLIC_BUNDLER_RPC_URL=...
@@ -114,7 +117,6 @@ MIT ©Maksim / MSSystem
 - [OpenAI](https://platform.openai.com/) – for delightful fortunes.
 - [Pinata](https://app.pinata.cloud/) – for Pinata.
 - [Metamask](https://docs.metamask.io/delegation-toolkit/guides/smart-accounts/) – for Metamask.
-
-
+- [farcaster](https://miniapps.farcaster.xyz/docs/guides) – for Farcaster.
 
 

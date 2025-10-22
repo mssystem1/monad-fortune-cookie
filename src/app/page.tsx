@@ -33,11 +33,7 @@ const xShareUrl = (tokenId: number) => {
   )}`;
 };
 
-const MIN_ABI = parseAbi([
-  'function mintPrice() view returns (uint256)',
-  // If your contract takes different args (e.g., (string imageCid, string fortune)), adjust here and in onMintImage()
-  'function mintWithImage(string fortune, string imageCid) payable returns (uint256)',
-]);
+
 
 export default function Page() {
   const qc = useQueryClient();
@@ -93,7 +89,7 @@ export default function Page() {
 
   const { data: onchainMintPrice } = useReadContract({
     address: COOKIE_ADDRESS,
-    abi: MIN_ABI,
+    abi: FortuneABI,
     functionName: 'mintPrice',
     query: { refetchInterval: 30000 }, // 30s
   });
@@ -297,7 +293,7 @@ const onMintImage = async () => {
   try {
     const call: any = {
       address: COOKIE_ADDRESS,
-      abi: MIN_ABI,
+      abi: FortuneABI as Abi,
       functionName: 'mintWithImage',
       args: [`fortune`, `ipfs://${pinCid}` ],         // <— if your signature differs, adjust
     };

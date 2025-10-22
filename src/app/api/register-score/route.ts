@@ -1,3 +1,4 @@
+/*
 // runtime must be node (NOT edge) to use private keys
 export const runtime = 'nodejs';
 
@@ -127,7 +128,7 @@ export async function POST(req: NextRequest) {
     } catch {
       username = '';
     }
-/*
+
     // Persist for MGID Leaderboard
     await upsertMGIDRecord({
       username: username || `${player.slice(0, 6)}…${player.slice(-4)}`,
@@ -136,7 +137,7 @@ export async function POST(req: NextRequest) {
       totalTransactions: Number(newTxTotal),
       updatedAt: Date.now(),
     });
-*/
+
 // ... after successful on-chain update:
 await savePlayer({
       username: username || `${player.slice(0, 6)}…${player.slice(-4)}`,
@@ -163,3 +164,4 @@ await savePlayer({
     );
   }
 }
+*/

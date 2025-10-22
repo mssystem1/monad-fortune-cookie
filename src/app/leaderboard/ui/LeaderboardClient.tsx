@@ -21,7 +21,12 @@ type Api = {
   error?: string;
 };
 
-export default function LeaderboardClient() {
+type LeaderboardSize = 'default' | 'mini';
+type LeaderboardClientProps = { size?: LeaderboardSize };
+
+export default function LeaderboardClient({ size = 'default' }: LeaderboardClientProps) {
+
+  const compact = size === 'mini';
   const { address } = useAccount();
   const [data, setData] = useState<Api | null>(null);
   const [loading, setLoading] = useState(true);
@@ -132,7 +137,7 @@ const youRow: Row | null = (data.you as any) ?? (() => {
       {/*showPinned && youRow ? <PinnedYouRow you={youRow} hasRank={!!data.you} /> : null*/}
       {showPinned && youRow ? <PinnedYouRow you={youRow} hasRank={Number.isFinite(youRow.rank)} /> : null}
 
-      <Table rows={data.top20} highlight={highlights} />
+      <Table rows={data.top20} highlight={highlights} compact={compact} />
       <p style={{ marginTop: 12, color: "#9ca3af" }}>
         {Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(data.updatedAt))}
         {" • "}
@@ -177,7 +182,18 @@ function PinnedYouRow({ you, hasRank }: { you: Row; hasRank: boolean }) {
   );
 }
 
-function Table({ rows, highlight }: { rows: Row[]; highlight: string | string[] }) {
+function Table({
+  rows,
+  highlight,
+  compact = false,
+}: {
+  rows: Row[];
+  highlight: string | string[];
+  compact?: boolean;
+}) {
+  const showExtras = !compact; // hide extra columns in mini
+  const hl = Array.isArray(highlight) ? highlight : [highlight];
+
   return (
     <div style={{ overflowX: "auto" }}>
       <table
@@ -191,55 +207,79 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string | string[] 
           borderRadius: 12,
           overflow: "hidden",
           border: "1px solid #1f1f26",
+          fontSize: compact ? 12 : 14,
         }}
       >
         <colgroup>
-          <col style={{ width: "18%" }} />
-          <col style={{ width: "56%" }} />
-          <col style={{ width: "26%" }} />
-          <col style={{ width: "26%" }} />
-          <col style={{ width: "26%" }} />
+          {compact ? (
+            <>
+            {/*
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "60%" }} />
+              <col style={{ width: "20%" }} />
+              */}
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "56%" }} />
+              <col style={{ width: "26%" }} />
+              <col style={{ width: "26%" }} />
+              <col style={{ width: "26%" }} />
+            </>
+          ) : (
+            <>
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "56%" }} />
+              <col style={{ width: "26%" }} />
+              <col style={{ width: "26%" }} />
+              <col style={{ width: "26%" }} />
+            </>
+          )}
         </colgroup>
 
         <thead>
           <tr>
-            <Th style={{ textAlign: "left", paddingLeft: 8, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
+            <Th compact={compact} style={{ textAlign: "left", paddingLeft: 8, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
               RANK
             </Th>
-            <Th style={{ textAlign: "left", paddingLeft: 28, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
+            <Th compact={compact} style={{ textAlign: "left", paddingLeft: compact ? 16 : 28, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
               WALLET
             </Th>
-            <Th style={{ textAlign: "right", paddingRight: 18, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
+            <Th compact={compact} style={{ textAlign: "right", paddingRight: compact ? 10 : 18, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
               MINTS
             </Th>
-            <th style={{ textAlign: "right", paddingRight: 25, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
-              MINTED COOKIES
-            </th>
-            <th style={{ textAlign: "right", paddingRight: 30, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
-              MINTED IMAGES
-            </th>
+            {/*showExtras &&*/} 
+            {(
+              <Th compact={compact} style={{ textAlign: "right", paddingRight: compact ? 12 : 25, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
+                MINTED COOKIES
+              </Th>
+            )}
+            {/*showExtras &&*/} 
+            {(
+              <Th compact={compact} style={{ textAlign: "right", paddingRight: compact ? 14 : 30, background: "#14141a", borderBottom: "1px solid #1f1f26" }}>
+                MINTED IMAGES
+              </Th>
+            )}
           </tr>
         </thead>
 
         <tbody>
           {rows.map((r, i) => {
             const isPlaceholder = !r.address;
-            //const isMintedCookies = !r.mintedCookies;
-            const hl = Array.isArray(highlight) ? highlight : [highlight];
             const rowLowers = lowers(r.address);
-            //const active = rowLowers.some((a) => highlight.includes(a));
             const active = rowLowers.some((a) => hl.includes(a));
             const key = (r.address || "placeholder") + "-" + r.rank;
+
             return (
               <Tr key={key} i={i} active={active}>
-                <Td style={{ textAlign: "left", paddingLeft: 12 }}>{rankCell(r.rank)}</Td>
+                <Td compact={compact} style={{ textAlign: "left", paddingLeft: compact ? 8 : 12 }}>
+                  {rankCell(r.rank)}
+                </Td>
 
-                <Td style={{ textAlign: "left", paddingLeft: 28 }}>
+                <Td compact={compact} style={{ textAlign: "left", paddingLeft: compact ? 16 : 28 }}>
                   {isPlaceholder ? (
                     <span style={{ color: "#6b7280" }}>—</span>
                   ) : (
                     <a
-                      href={`https://testnet.monadexplorer.com/address/${r.address}`}
+                      href={`https://testnet.monadexplorer.com/address/${Array.isArray(r.address) ? r.address[0] : r.address}`}
                       target="_blank"
                       rel="noreferrer"
                       style={{ color: "#cbd5e1", textDecoration: "none" }}
@@ -249,15 +289,22 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string | string[] 
                   )}
                 </Td>
 
-                <Td style={{ textAlign: "right", paddingRight: 18 }}>
+                <Td compact={compact} style={{ textAlign: "right", paddingRight: compact ? 10 : 18 }}>
                   {isPlaceholder ? <span style={{ color: "#6b7280" }}>—</span> : <span style={pillStyle(r.rank)}>{r.mints}</span>}
                 </Td>
-                <td style={{ textAlign: "right", paddingRight: 25 }}>
-                  {isPlaceholder ? <span style={{ color: "#6b7280" }}>—</span> :  <span style={pillStyle(r.rank)}>{r.mintedCookies ?? 0}</span>}
-                </td>
-                <td style={{ textAlign: "right", paddingRight: 30 }}>
-                  {isPlaceholder ? <span style={{ color: "#6b7280" }}>—</span> :  <span style={pillStyle(r.rank)}>{r.mintedImages ?? 0} </span>}
-                </td>
+
+                {/*showExtras &&*/} 
+                {(
+                  <Td compact={compact} style={{ textAlign: "right", paddingRight: compact ? 12 : 25 }}>
+                    {isPlaceholder ? <span style={{ color: "#6b7280" }}>—</span> : <span style={pillStyle(r.rank)}>{r.mintedCookies ?? 0}</span>}
+                  </Td>
+                )}
+                {/*showExtras &&*/} 
+                {(
+                  <Td compact={compact} style={{ textAlign: "right", paddingRight: compact ? 14 : 30 }}>
+                    {isPlaceholder ? <span style={{ color: "#6b7280" }}>—</span> : <span style={pillStyle(r.rank)}>{r.mintedImages ?? 0}</span>}
+                  </Td>
+                )}
               </Tr>
             );
           })}
@@ -267,12 +314,52 @@ function Table({ rows, highlight }: { rows: Row[]; highlight: string | string[] 
   );
 }
 
-function Th({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <th style={{ padding: "12px 12px", color: "#e5e7eb", letterSpacing: "0.04em", ...style }}>{children}</th>;
+function Th({
+  children,
+  compact = false,
+  style,
+}: {
+  children: React.ReactNode;
+  compact?: boolean;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <th
+      style={{
+        padding: compact ? "8px 8px" : "12px 12px",
+        color: "#e5e7eb",
+        letterSpacing: "0.04em",
+        fontSize: compact ? 12 : 13,
+        ...style,
+      }}
+    >
+      {children}
+    </th>
+  );
 }
-function Td({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <td style={{ padding: "12px", borderBottom: "1px solid #16161d", ...style }}>{children}</td>;
+
+function Td({
+  children,
+  compact = false,
+  style,
+}: {
+  children: React.ReactNode;
+  compact?: boolean;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <td
+      style={{
+        padding: compact ? "8px" : "12px",
+        borderBottom: "1px solid #16161d",
+        ...style,
+      }}
+    >
+      {children}
+    </td>
+  );
 }
+
 function Tr({ children, i, active }: { children: React.ReactNode; i: number; active: boolean }) {
   const base: React.CSSProperties = {
     background: i < 3 ? "linear-gradient(90deg, rgba(124,58,237,0.18), rgba(15,15,18,0))" : i % 2 ? "#0d0d12" : "#0b0b10",
@@ -310,7 +397,7 @@ function pillStyle(rank: number): React.CSSProperties {
                   { bg: "#eff6ff", fg: "#1e3a8a", b: "#60a5fa" };
   return {
     display: "inline-block",
-    minWidth: 56,
+    minWidth: 36, //
     textAlign: "center",
     padding: "4px 10px",
     borderRadius: 999,
